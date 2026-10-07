@@ -1,0 +1,106 @@
+name: step2-switch
+
+topology:
+  nodes:
+
+    r1:
+      kind: linux
+      image: quay.io/frrouting/frr:10.7.1
+      binds:
+        - r1/daemons:/etc/frr/daemons
+        - r1/vtysh.conf:/etc/frr/vtysh.conf
+        - r1/frr.conf:/etc/frr/frr.conf
+      exec:
+        - vtysh -b
+
+    sw1:
+      kind: ovs-bridge
+    
+    sw2:
+      kind: ovs-bridge
+
+    probe1:
+      kind: linux
+      image: alpine:3
+      exec:
+        - ip link set eth1 up
+        - apk add --no-cache tcpdump
+
+    pc1:
+      kind: linux
+      image: alpine:3
+      exec:
+        - ip addr add 10.10.10.10/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace default via 10.10.10.1
+
+    pc2:
+      kind: linux
+      image: alpine:3
+      exec:
+        - ip addr add 10.10.10.20/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace default via 10.10.10.1
+
+    srv1:
+      kind: linux
+      image: alpine:3
+      exec:
+        - ip addr add 10.10.20.10/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace default via 10.10.20.1
+    web1:
+      kind: linux
+      image: enterprise-web:2.0
+      exec:
+        - ip addr add 10.10.20.20/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace default via 10.10.20.1
+    app1:
+      kind: linux
+      image: enterprise-app:1.0
+      exec:
+        - ip addr add 10.10.20.30/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace default via 10.10.20.1
+    db1:
+      kind: linux
+      image: postgres:18-alpine
+      binds:
+        - ./db1/data:/var/lib/postgresql
+      env:
+        POSTGRES_USER: appuser
+        POSTGRES_PASSWORD: labpassword
+        POSTGRES_DB: enterprise_db
+      exec:
+        - ip addr add 10.10.30.10/24 dev eth1
+        - ip link set eth1 up
+        - ip route replace default via 10.10.30.1
+
+  links:
+
+    # Router → switch
+    - endpoints: ["r1:eth1", "sw1:ovsp1"]
+
+    # Users → switch
+    - endpoints: ["pc1:eth1", "sw1:ovsp2"]
+    - endpoints: ["pc2:eth1", "sw1:ovsp3"]
+
+    # Router → sw2
+    - endpoints: ["r1:eth2", "sw2:ovs2p1"]
+
+    # probe1 -> sw2
+    - endpoints: ["probe1:eth1", "sw2:ovs2p_probe"]
+
+    # server → sw2
+    - endpoints: ["srv1:eth1", "sw2:ovs2p2"]
+    #web -> sw2
+    - endpoints: ["web1:eth1", "sw2:ovs2p3"]
+    # Application server → Server VLAN
+    - endpoints: ["app1:eth1", "sw2:ovs2p6"]
+
+    # R1 → Database VLAN
+    - endpoints: ["r1:eth3", "sw2:ovs2p4"]
+
+    # Database server → Database VLAN
+    - endpoints: ["db1:eth1", "sw2:ovs2p5"]

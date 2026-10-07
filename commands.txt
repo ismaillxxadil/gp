@@ -1,0 +1,2 @@
+docker exec -i clab-step2-switch-probe1 tcpdump -i eth1 -U -w - | wireshark -k -i -
+bash config/vlan-config.sh

@@ -1,0 +1,1174 @@
+You are continuing an ongoing graduation-project lab with me. Read this entire prompt carefully and treat it as the current source of truth.
+
+## 1. My overall goal
+
+I am a CS student building a graduation project inspired by the research paper:
+
+**"Simulation-powered cybersecurity: real-time risk assessment via non-intrusive security twin" (NOTLINE, Baiardi & Sammartino, 2026).**
+
+The main idea of my project is to build a realistic-enough virtual enterprise network that can generate real network traffic and can be passively monitored by a security monitoring probe.
+
+The eventual architecture should allow us to:
+
+1. Build an enterprise-like network.
+2. Have realistic devices/services communicating.
+3. Generate normal enterprise traffic.
+4. Add security-relevant activity/attacks later.
+5. Capture traffic passively without putting the monitoring probe inline.
+6. Feed the observed information to a NOTLINE-inspired system.
+7. Eventually identify assets, OS/software/services, network relationships, and security-relevant information such as vulnerabilities/CVEs.
+8. Use the resulting network as the environment for my graduation research/project.
+
+I do NOT want to build a toy topology that only exists to demonstrate commands. I want the architecture to be realistic enough to support the research goal while remaining practical on my laptop.
+
+The monitoring "sensor" mentioned in my project means a **passive monitoring probe**, not an IoT sensor.
+
+---
+
+# 2. Research context: NOTLINE
+
+The paper I am studying is about a **non-intrusive security twin**.
+
+The important idea for my implementation is that the system passively observes network traffic rather than installing agents on every endpoint or actively scanning the environment.
+
+The paper discusses passive Layer 2–4 telemetry such as:
+
+* ARP
+* DHCP
+* mDNS
+* SSDP
+* ICMP
+* TCP/TLS handshakes
+* other network traffic/protocol information
+
+The eventual monitoring architecture should therefore be able to observe meaningful traffic from the enterprise network.
+
+A major goal is to create a realistic network from which a passive probe can infer things such as:
+
+* assets
+* IP addresses
+* MAC addresses
+* network relationships
+* OS/device fingerprints where possible
+* software/services where observable
+* communication relationships
+* security-relevant information
+* potentially CVE-related information based on identified software/services
+
+Do NOT assume that NOTLINE simply "scans every device and queries every CVE." I want technically accurate explanations based on the paper and on what our implementation actually does.
+
+---
+
+# 3. My current environment
+
+I am running Ubuntu on an older laptop.
+
+Docker is installed and working.
+
+Containerlab is installed and working.
+
+Open vSwitch is installed and working.
+
+I use VS Code for the project.
+
+I want to work primarily from VS Code and its terminal.
+
+My project directory is currently:
+
+```text
+~/enterprise-lab/step2-switch
+```
+
+The main Containerlab topology file is:
+
+```text
+step2.clab.yml
+```
+
+I want to continue modifying this existing topology rather than destroying it and starting from zero every time.
+
+Use Containerlab's reconciliation/deploy capabilities when possible.
+
+Before making topology changes, prefer:
+
+```bash
+sudo containerlab deploy --dry-run -t step2.clab.yml
+```
+
+Then, if the expected changes are correct:
+
+```bash
+sudo containerlab deploy -t step2.clab.yml
+```
+
+Do NOT unnecessarily use destructive redeploy/destroy operations.
+
+---
+
+# 4. VS Code
+
+I installed/used the Containerlab VS Code extension and YAML support.
+
+Relevant extensions:
+
+```text
+srl-labs.vscode-containerlab
+redhat.vscode-yaml
+```
+
+I want to use VS Code to edit the topology/configuration.
+
+---
+
+# 5. Important naming convention
+
+There was a problem where the OVS port names on SW1 and SW2 could collide/confuse things.
+
+I changed the SW2 port names.
+
+## SW1 ports
+
+SW1 uses:
+
+```text
+ovsp1
+ovsp2
+ovsp3
+...
+```
+
+## SW2 ports
+
+SW2 uses:
+
+```text
+ovs2p1
+ovs2p2
+ovs2p3
+ovs2p4
+ovs2p5
+ovs2p6
+...
+```
+
+**This is important.**
+
+Do NOT go back to using `ovsp1`, `ovsp2`, etc. for SW2.
+
+Use:
+
+```text
+SW1: ovspX
+SW2: ovs2pX
+```
+
+in all future commands/configurations.
+
+---
+
+# 6. Current network architecture
+
+We have built the topology incrementally.
+
+The current conceptual architecture is:
+
+```text
+                         R1
+                 FRRouting Router
+              ┌──────────┼──────────┐
+              │          │          │
+           VLAN 10    VLAN 20    VLAN 30
+           USERS      SERVERS     DATABASE
+              │          │          │
+             SW1        SW2        SW2
+            /   \      / |  \       │
+          PC1   PC2   WEB APP SRV   DB
+```
+
+More specifically:
+
+```text
+USERS VLAN
+10.10.10.0/24
+
+PC1 = 10.10.10.10
+PC2 = 10.10.10.20
+R1  = 10.10.10.1
+```
+
+Server network:
+
+```text
+SERVERS VLAN
+10.10.20.0/24
+
+R1  = 10.10.20.1
+SRV1 = 10.10.20.10
+WEB1 = 10.10.20.20
+APP1 = 10.10.20.30
+```
+
+Database network:
+
+```text
+DATABASE VLAN
+10.10.30.0/24
+
+R1  = 10.10.30.1
+DB1 = 10.10.30.10
+```
+
+---
+
+# 7. R1
+
+R1 is an FRRouting container.
+
+It uses:
+
+```yaml
+image: quay.io/frrouting/frr:10.7.1
+```
+
+R1 currently has:
+
+```text
+eth1 = 10.10.10.1/24
+eth2 = 10.10.20.1/24
+eth3 = 10.10.30.1/24
+```
+
+Conceptually:
+
+```text
+eth1 → USERS
+eth2 → SERVERS
+eth3 → DATABASE
+```
+
+The FRR configuration contains:
+
+```text
+interface eth1
+ description USERS-LAN
+ ip address 10.10.10.1/24
+ no shutdown
+
+interface eth2
+ description SERVER-LAN
+ ip address 10.10.20.1/24
+ no shutdown
+
+interface eth3
+ description DATABASE-LAN
+ ip address 10.10.30.1/24
+ no shutdown
+```
+
+R1 is routing between these networks.
+
+We have verified the routing table and connectivity.
+
+---
+
+# 8. SW1
+
+SW1 is an existing Open vSwitch bridge on the Ubuntu host.
+
+It was created with something like:
+
+```bash
+sudo ovs-vsctl add-br sw1
+```
+
+Containerlab represents it with:
+
+```yaml
+sw1:
+  kind: ovs-bridge
+```
+
+SW1 is the user/access switch.
+
+Current conceptual ports:
+
+```text
+SW1
+
+ovsp1 → R1 eth1 → VLAN 10
+ovsp2 → PC1      → VLAN 10
+ovsp3 → PC2      → VLAN 10
+```
+
+These are access ports with VLAN 10.
+
+The OVS configuration is applied using a script:
+
+```text
+config/vlan-config.sh
+```
+
+---
+
+# 9. SW2
+
+SW2 is another Open vSwitch bridge on the Ubuntu host.
+
+It was created with:
+
+```bash
+sudo ovs-vsctl add-br sw2
+```
+
+Containerlab represents it as:
+
+```yaml
+sw2:
+  kind: ovs-bridge
+```
+
+SW2 is currently the server/database switch.
+
+IMPORTANT: SW2 port names use the `ovs2p` prefix.
+
+Current conceptual port mapping:
+
+```text
+SW2
+
+ovs2p1 → R1 eth2 → VLAN 20
+ovs2p2 → SRV1     → VLAN 20
+ovs2p3 → WEB1     → VLAN 20
+ovs2p4 → R1 eth3  → VLAN 30
+ovs2p5 → DB1      → VLAN 30
+ovs2p6 → APP1     → VLAN 20
+```
+
+So:
+
+```text
+VLAN 20:
+R1
+SRV1
+WEB1
+APP1
+
+VLAN 30:
+R1
+DB1
+```
+
+---
+
+# 10. VLAN design decision
+
+We discussed whether we need a trunk.
+
+I decided:
+
+**We do NOT need a trunk for the current project architecture.**
+
+Do not introduce trunking unless there is a concrete architectural reason.
+
+Our current architecture uses separate networks/interfaces and separate VLANs without needing to carry multiple VLANs over one physical/logical link.
+
+The current design is intentionally simple:
+
+```text
+VLAN 10 = USERS
+VLAN 20 = SERVERS
+VLAN 30 = DATABASE
+```
+
+We may introduce more sophisticated segmentation later if it benefits the research project.
+
+Do not add complexity just because enterprise networks can use it.
+
+---
+
+# 11. PC1 and PC2
+
+PC1:
+
+```text
+10.10.10.10/24
+gateway 10.10.10.1
+```
+
+PC2:
+
+```text
+10.10.10.20/24
+gateway 10.10.10.1
+```
+
+They are connected to SW1.
+
+We have verified:
+
+```text
+PC1 → PC2
+PC1 → R1
+```
+
+both work.
+
+---
+
+# 12. SRV1
+
+SRV1 is a server on the server VLAN.
+
+```text
+IP = 10.10.20.10/24
+Gateway = 10.10.20.1
+```
+
+It is connected to:
+
+```text
+SW2 ovs2p2
+```
+
+It can communicate with R1 and other networks.
+
+---
+
+# 13. WEB1
+
+WEB1 is a real Nginx web server.
+
+We built a custom image:
+
+```text
+enterprise-web:2.0
+```
+
+The Dockerfile is based on:
+
+```text
+nginx:stable-alpine3.24
+```
+
+It has a custom `index.html`.
+
+WEB1:
+
+```text
+10.10.20.20/24
+Gateway = 10.10.20.1
+```
+
+Connected to:
+
+```text
+SW2 ovs2p3
+```
+
+VLAN:
+
+```text
+20
+```
+
+We verified:
+
+```text
+PC1 → WEB1 ping
+PC1 → WEB1 HTTP
+```
+
+works.
+
+For example:
+
+```bash
+docker exec clab-step2-switch-pc1 wget -qO- http://10.10.20.20
+```
+
+works.
+
+---
+
+# 14. DB1
+
+DB1 is a PostgreSQL database server.
+
+Image:
+
+```text
+postgres:18-alpine
+```
+
+DB1:
+
+```text
+10.10.30.10/24
+Gateway = 10.10.30.1
+```
+
+Connected to:
+
+```text
+SW2 ovs2p5
+```
+
+VLAN:
+
+```text
+30
+```
+
+The database storage is persisted using the topology bind mount:
+
+```text
+./db1/data:/var/lib/postgresql
+```
+
+The topology currently sets:
+
+```text
+POSTGRES_USER=appuser
+POSTGRES_PASSWORD=labpassword
+POSTGRES_DB=enterprise_db
+```
+
+We verified:
+
+```bash
+docker exec clab-step2-switch-db1 pg_isready
+```
+
+works.
+
+The lab database was initialized with:
+
+```sql
+CREATE TABLE test_messages(
+    id SERIAL PRIMARY KEY,
+    message TEXT
+);
+```
+
+and inserted:
+
+```text
+Enterprise lab is working
+```
+
+Direct PostgreSQL access to the initialized database was verified. The
+APP1-to-DB1 path must still be verified through the application endpoint.
+
+---
+
+# 15. APP1
+
+APP1 is a Node.js/Express application server.
+
+Image:
+
+```text
+enterprise-app:1.0
+```
+
+APP1:
+
+```text
+10.10.20.30/24
+Gateway = 10.10.20.1
+```
+
+Connected to:
+
+```text
+SW2 ovs2p6
+```
+
+VLAN:
+
+```text
+20
+```
+
+It runs an Express API on:
+
+```text
+TCP 3000
+```
+
+Current API endpoints include:
+
+```text
+GET /
+GET /api/health
+GET /api/users
+GET /api/users/search?name=<name>
+```
+
+`/api/users/search` executes a PostgreSQL query through APP1 using the
+`pg` client and DB1 connection settings. It is intentionally a lab-only
+endpoint and must not be presented as production-safe SQL because it
+currently interpolates the query parameter into the SQL statement.
+
+Example response:
+
+```json
+{
+  "status": "healthy",
+  "server": "APP1"
+}
+```
+
+We verified:
+
+```text
+PC1 → APP1 ping
+PC1 → APP1 HTTP/API
+```
+
+works.
+
+---
+
+# 16. IMPORTANT CURRENT STATE
+
+I have now **connected the application components in configuration**:
+
+The currently configured application flow is:
+
+```text
+PC
+ │
+ │ HTTP
+ ▼
+WEB1
+ │
+ │ API
+ ▼
+APP1
+ │
+ │ PostgreSQL
+ ▼
+DB1
+```
+
+WEB1 is configured to reverse-proxy `/api/` requests to APP1 at
+`10.10.20.30:3000`, and APP1 is configured to connect to DB1 at
+`10.10.30.10:5432`. The end-to-end database-backed request still needs to
+be explicitly verified in the lab; do not claim it works until that test
+passes.
+
+Therefore, **do not tell me to create APP1 from scratch again.**
+
+First inspect/reason about the existing architecture and help me verify the
+application chain, including a database-backed request through WEB1.
+
+We should now verify that the application actually communicates through all
+tiers, rather than assuming that configuration alone proves end-to-end
+operation.
+
+---
+
+# 17. Desired application architecture
+
+The final application flow should ideally be:
+
+```text
+PC1
+ │
+ │ HTTP
+ ▼
+WEB1
+ │
+ │ HTTP/API
+ ▼
+APP1
+ │
+ │ PostgreSQL
+ ▼
+DB1
+```
+
+Ideally:
+
+* WEB1 acts as the web/front-end or reverse proxy layer.
+* APP1 provides the business/API layer.
+* DB1 provides persistent data.
+
+We should avoid simply making PC1 connect directly to APP1 and DB1 if the architecture is supposed to be multi-tier.
+
+---
+
+# 18. Security architecture goal
+
+Eventually I want to model realistic enterprise security boundaries.
+
+Potential architecture:
+
+```text
+USERS
+  │
+  ▼
+WEB
+  │
+  ▼
+APP
+  │
+  ▼
+DATABASE
+```
+
+and later enforce rules such as:
+
+```text
+Users → WEB      allowed
+Users → APP      restricted
+Users → DB       denied
+
+WEB → APP        allowed
+WEB → DB         denied
+
+APP → DB         allowed
+```
+
+But don't implement firewall/ACL rules prematurely.
+
+First establish the normal application traffic and verify everything.
+
+---
+
+# 19. Passive monitoring probe goal
+
+The monitoring probe is extremely important.
+
+It should be a **passive monitoring sensor/probe**.
+
+It should NOT be a normal endpoint that participates in application communication.
+
+The conceptual architecture is:
+
+```text
+                    Enterprise Network
+                           │
+                    normal traffic
+                           │
+             ┌─────────────┴────────────┐
+             │                          │
+          devices                   services
+             │                          │
+             └─────────────┬────────────┘
+                           │
+                     OVS/SPAN/mirror
+                           │
+                           ▼
+                   Passive Probe
+                           │
+                           ▼
+                    Traffic telemetry
+                           │
+                           ▼
+                 NOTLINE-inspired system
+```
+
+The probe should observe traffic without modifying the communication path.
+
+Eventually we need to decide the best observation point.
+
+Possibilities include:
+
+* OVS port mirroring
+* a dedicated monitoring bridge/interface
+* a gateway observation point
+* multiple probes
+* tcpdump/Wireshark
+* Zeek
+* Suricata
+* custom packet capture/telemetry
+
+But don't add all of these at once.
+
+We should build this incrementally.
+
+---
+
+# 20. Why I chose Containerlab + OVS
+
+The reason for using Containerlab is that I want:
+
+* reproducible topology
+* Docker-based devices/services
+* easy network experimentation
+* realistic network namespaces/interfaces
+* FRRouting routers
+* Open vSwitch switching
+* easy traffic generation
+* easy passive monitoring integration
+
+OVS is especially important because later it can provide a convenient place to implement traffic mirroring for the passive probe.
+
+---
+
+# 21. Development methodology I want
+
+This is VERY important.
+
+I want to learn this **step by step**.
+
+For every major step:
+
+1. Explain what we are building.
+2. Explain why it is needed.
+3. Modify the existing topology.
+4. Give exact commands/files.
+5. Don't destroy the current topology unnecessarily.
+6. Use `--dry-run` before topology changes.
+7. Deploy the change.
+8. Verify it.
+9. STOP.
+10. Wait for me to say it works before continuing.
+
+Do NOT give me 5 future steps at once.
+
+I want one step at a time.
+
+If a step has multiple sub-parts, divide it into checkpoints.
+
+---
+
+# 22. Verification philosophy
+
+I want every stage to be verified before moving on.
+
+For example:
+
+```text
+CREATE
+   ↓
+CONFIGURE
+   ↓
+VERIFY
+   ↓
+TRAFFIC TEST
+   ↓
+APPLICATION TEST
+   ↓
+ONLY THEN continue
+```
+
+If something fails, debug the current step rather than moving forward.
+
+Do not assume something worked because the command returned quickly.
+
+---
+
+# 23. Explain concepts, not just commands
+
+I am learning networking and cybersecurity while building this.
+
+When introducing something like:
+
+* VLAN
+* OVS bridge
+* access port
+* trunk
+* Linux namespace
+* Docker network interface
+* routing
+* NAT
+* reverse proxy
+* database
+* passive monitoring
+* SPAN/mirroring
+* packet capture
+* Zeek
+* Suricata
+* telemetry
+* asset discovery
+
+explain the concept first in simple language, then show how it applies to OUR topology.
+
+Don't drown me in theory, but don't just give commands without explaining them.
+
+---
+
+# 24. Important distinction about Containerlab and OVS
+
+I previously asked how Containerlab knows about `sw1`.
+
+The important understanding is:
+
+```text
+sw1:
+  kind: ovs-bridge
+```
+
+doesn't mean Containerlab creates a normal Docker container called sw1.
+
+Instead, it represents an OVS bridge on the host.
+
+We created host bridges with:
+
+```bash
+sudo ovs-vsctl add-br sw1
+sudo ovs-vsctl add-br sw2
+```
+
+Containerlab then uses the topology definition to connect container interfaces to those OVS bridges.
+
+This distinction should be maintained in future explanations.
+
+---
+
+# 25. Current OVS VLAN configuration concept
+
+The configuration script is:
+
+```text
+config/vlan-config.sh
+```
+
+It currently does:
+
+```bash
+# SW1 / USERS VLAN 10
+ovsp1 → VLAN 10
+ovsp2 → VLAN 10
+ovsp3 → VLAN 10
+
+# SW2 / SERVERS VLAN 20
+ovs2p1 → VLAN 20
+ovs2p2 → VLAN 20
+ovs2p3 → VLAN 20
+ovs2p6 → VLAN 20
+
+# SW2 / DATABASE VLAN 30
+ovs2p4 → VLAN 30
+ovs2p5 → VLAN 30
+```
+
+For example:
+
+```bash
+sudo ovs-vsctl set port ovs2p6 tag=20
+```
+
+means APP1's access port belongs to VLAN 20.
+
+---
+
+# 26. Current topology visualization
+
+Think of the whole lab approximately like this:
+
+```text
+                         ┌─────────────┐
+                         │     R1      │
+                         │  FRRouting  │
+                         └─────┬───────┘
+                    ┌──────────┼──────────┐
+                    │          │          │
+                 VLAN 10    VLAN 20    VLAN 30
+                    │          │          │
+              ┌─────┴───┐  ┌───┴────────┐ │
+              │   SW1   │  │    SW2     │ │
+              │   OVS   │  │    OVS     │ │
+              └──┬──┬───┘  └─┬──┬──┬──┬┘ │
+                 │  │         │  │  │  │  │
+                PC1 PC2      SRV WEB APP  │
+                                             │
+                                             DB1
+```
+
+More accurately:
+
+```text
+                USERS
+                 VLAN10
+                   │
+              ┌────┴────┐
+              │   SW1   │
+              └─┬────┬──┘
+                │    │
+               PC1  PC2
+                │
+                │
+                ▼
+                R1
+             /       \
+            /         \
+      VLAN20           VLAN30
+        │                │
+       SW2               SW2
+   ┌────┼────┐            │
+   │    │    │            │
+ WEB   APP  SRV           DB
+```
+
+---
+
+# 27. Current IP table
+
+Use this as the authoritative addressing plan unless we intentionally change it:
+
+| Device  | Role               |          IP | VLAN |
+| ------- | ------------------ | ----------: | ---: |
+| R1 eth1 | User gateway       |  10.10.10.1 |   10 |
+| PC1     | User PC            | 10.10.10.10 |   10 |
+| PC2     | User PC            | 10.10.10.20 |   10 |
+| R1 eth2 | Server gateway     |  10.10.20.1 |   20 |
+| SRV1    | Server             | 10.10.20.10 |   20 |
+| WEB1    | Web server         | 10.10.20.20 |   20 |
+| APP1    | Application server | 10.10.20.30 |   20 |
+| R1 eth3 | DB gateway         |  10.10.30.1 |   30 |
+| DB1     | PostgreSQL         | 10.10.30.10 |   30 |
+
+---
+
+# 28. What I want to do next
+
+I have already connected:
+
+```text
+WEB1 → APP1 → DB1
+```
+
+Now help me verify and implement the actual application-layer communication.
+
+The immediate goal should be:
+
+```text
+PC1
+ ↓ HTTP
+WEB1
+ ↓ API
+APP1
+ ↓ PostgreSQL
+DB1
+```
+
+Then we should gradually make the environment more realistic.
+
+A sensible future roadmap is:
+
+### Phase 1 — Enterprise infrastructure
+
+* Users
+* switches
+* router
+* server network
+* database network
+* web server
+* application server
+* database
+
+### Phase 2 — Real application communication
+
+* WEB → APP
+* APP → DB
+* database queries
+* realistic application traffic
+
+### Phase 3 — Infrastructure services
+
+Potentially:
+
+* DNS
+* DHCP
+* NTP
+* SSH
+* internal services
+* logging
+
+### Phase 4 — Passive monitoring
+
+* OVS traffic mirroring
+* passive probe
+* tcpdump/Wireshark
+* potentially Zeek/Suricata
+* collect network telemetry
+
+### Phase 5 — NOTLINE-inspired asset discovery
+
+Use passive observations to build:
+
+* asset inventory
+* topology/relationships
+* device identification
+* service identification
+* software inference where possible
+
+### Phase 6 — Security intelligence
+
+Potentially:
+
+* vulnerability mapping
+* CVE correlation
+* risk information
+* attack surface
+
+### Phase 7 — Attack simulation
+
+Generate controlled attacks/abnormal behavior in the lab:
+
+* scanning
+* brute force
+* suspicious HTTP requests
+* lateral movement
+* malicious DNS behavior
+* other appropriate scenarios
+
+### Phase 8 — Research evaluation
+
+Measure:
+
+* detection/discovery capability
+* accuracy
+* latency
+* network visibility
+* passive nature
+* limitations
+* comparison with active scanning where appropriate
+
+---
+
+# 29. Very important project constraint
+
+Do NOT claim that our implementation is exactly the same as the original NOTLINE system.
+
+We are building a **NOTLINE-inspired graduation-project implementation**.
+
+If the paper does something we cannot reproduce exactly, explain:
+
+1. What the paper actually does.
+2. What we can reproduce.
+3. What approximation we are making.
+4. Why the approximation is reasonable.
+5. What limitation it introduces.
+
+I want the final project/research to be technically honest.
+
+---
+
+# 30. How I want you to respond
+
+Act as a **Principal Network Engineer + Cybersecurity Architect + teacher**.
+
+Be direct and technically honest.
+
+Use diagrams frequently when they help.
+
+Use exact commands.
+
+When editing YAML, show the relevant section and clearly explain what changed.
+
+Do not repeatedly recreate the entdocker exec clab-step2-switch-r1 vtysh -c 'show ip route'ire topology file unless necessary.
+
+Do not destroy the lab unless there is a genuine technical reason.
+
+Do not skip verification.
+
+Do not move to the next step until I confirm the current step works.
+
+Start from the current state described above.
+
+**First task in the new chat: help me verify the current WEB1 → APP1 → DB1 architecture and then implement/test the actual communication chain, one step at a time.**
