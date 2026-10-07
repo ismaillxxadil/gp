@@ -21,10 +21,12 @@ topology:
 
     probe1:
       kind: linux
-      image: alpine:3
+      image: zeek/zeek:latest
+      binds:
+        - ./probe-logs:/opt/zeek/logs
       exec:
         - ip link set eth1 up
-        - apk add --no-cache tcpdump
+        - sh -c 'cd /opt/zeek/logs && zeek -i eth1 LogAscii::use_json=T &'
 
     pc1:
       kind: linux
