@@ -13,6 +13,8 @@ PC1/PC2 (users)
                          +-- VLAN 20 -- SRV1, WEB1, APP1
                          |
                          +-- VLAN 30 -- DB1
+                         |
+                         +-- VLAN 40 -- IOT1, IOT2
 ```
 
 The application path is:
@@ -195,8 +197,9 @@ docker image inspect enterprise-web:2.0 enterprise-app:1.0 >/dev/null
 The other images are pulled by Containerlab/Docker:
 
 - `quay.io/frrouting/frr:10.7.1`
-- `alpine:3`
-- `postgres:18-alpine`
+- `zeek/zeek:7.0.5`
+- `alpine:3.21.3`
+- `postgres:18.0-alpine3.21`
 
 ## Prepare the OVS bridges
 
@@ -272,6 +275,30 @@ clab-step2-switch-db1
 `sw1` and `sw2` are host Open vSwitch bridges, not Docker containers. Verify
 them separately with `sudo ovs-vsctl list-br`.
 
+The DHCP server is connected to user VLAN 10, server VLAN 20, and isolated IoT
+VLAN 40. It provides `10.10.10.100-10.10.10.150` to PC1/PC2,
+`10.10.20.100-10.10.20.150` to the server VLAN, and
+`10.10.40.100-10.10.40.150` to IoT1/IoT2. The IoT pool does not advertise a
+default gateway, keeping the devices isolated and reducing unnecessary routed
+traffic. All DHCP clients use quiet retry settings.
+The DHCP server also provides DNS on `10.10.10.2`; PC1 and PC2 receive that
+address through DHCP.
+Because Docker supplies a managed `/etc/resolv.conf`, PC1 and PC2 explicitly
+write the lab DNS address after DHCP starts.
+
+Web1 is available from PC1 and PC2 as `frontend.enterprise.local`, which
+resolves to `10.10.20.20` through the lab DNS server.
+APP1 and DB1 are also available as `app.enterprise.local`
+(`10.10.20.30`) and `db.enterprise.local` (`10.10.30.10`).
+
+SRV1 runs OpenSSH with the lab account `labuser` and password
+`labpassword`. PC1 installs the OpenSSH client during deployment. After PC1
+receives its DHCP address, connect to SRV1 with:
+
+```bash
+docker exec -it clab-step2-switch-pc1 ssh labuser@10.10.20.10
+```
+
 ## Verify OVS VLAN tags
 
 ```bash
@@ -343,6 +370,17 @@ VLAN or every OVS port is included in the mirror. Verify the configured
 `select_src_port`, `select_dst_port`, and `output_port` values in
 `ovs-vsctl list mirror`.
 
+Capture on `probe1:eth1`, not only on the host-side OVS port name
+`ovs2p_probe`. The mirror output is delivered across the link into the probe
+container, where `eth1` is the reliable capture interface:
+
+```bash
+docker exec clab-step2-switch-probe1 tcpdump -ni eth1 -c 10
+```
+
+The startup script clears stale mirror objects before creating a mirror for
+the newly created probe port. Rerun `./start-lab.sh` after restarting the lab.
+
 ## Verify connectivity
 
 Check the configured addresses:
@@ -350,6 +388,7 @@ Check the configured addresses:
 ```bash
 docker exec clab-step2-switch-pc1 ip -4 addr show dev eth1
 docker exec clab-step2-switch-pc2 ip -4 addr show dev eth1
+docker exec clab-step2-switch-iot1 ip -4 addr show dev eth1
 docker exec clab-step2-switch-srv1 ip -4 addr show dev eth1
 docker exec clab-step2-switch-web1 ip -4 addr show dev eth1
 docker exec clab-step2-switch-app1 ip -4 addr show dev eth1

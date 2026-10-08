@@ -1,6 +1,10 @@
 # Local database state
 db1/data/
 
+# Zeek probe logs
+probe-logs/*
+probe2-logs/*
+
 # Node.js dependencies
 app1/node_modules/
 
