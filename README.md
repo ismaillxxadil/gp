@@ -10,7 +10,9 @@ PC1/PC2 (users)
        |
      SW1 -- VLAN 10 -- R1
                          |
-                         +-- VLAN 20 -- SRV1, WEB1, APP1
+                         +-- VLAN 20 -- WEB1
+                         +-- VLAN 25 -- APP1
+                         +-- VLAN 35 -- SRV1, FILES1
                          |
                          +-- VLAN 30 -- DB1
                          |
@@ -289,14 +291,14 @@ write the lab DNS address after DHCP starts.
 Web1 is available from PC1 and PC2 as `frontend.enterprise.local`, which
 resolves to `10.10.20.20` through the lab DNS server.
 APP1 and DB1 are also available as `app.enterprise.local`
-(`10.10.20.30`) and `db.enterprise.local` (`10.10.30.10`).
+(`10.10.25.30`) and `db.enterprise.local` (`10.10.30.10`).
 
 SRV1 runs OpenSSH with the lab account `labuser` and password
 `labpassword`. PC1 installs the OpenSSH client during deployment. After PC1
 receives its DHCP address, connect to SRV1 with:
 
 ```bash
-docker exec -it clab-step2-switch-pc1 ssh labuser@10.10.20.10
+docker exec -it clab-step2-switch-pc1 ssh labuser@10.10.35.10
 ```
 
 ## Verify OVS VLAN tags
@@ -310,6 +312,9 @@ sudo ovs-vsctl get port ovs2p1 tag
 sudo ovs-vsctl get port ovs2p2 tag
 sudo ovs-vsctl get port ovs2p3 tag
 sudo ovs-vsctl get port ovs2p6 tag
+sudo ovs-vsctl get port ovs2p11 tag
+sudo ovs-vsctl get port ovs2p12 tag
+sudo ovs-vsctl get port ovs2p13 tag
 
 sudo ovs-vsctl get port ovs2p4 tag
 sudo ovs-vsctl get port ovs2p5 tag
@@ -319,7 +324,8 @@ Expected values:
 
 ```text
 SW1 ports: ovsp1=10, ovsp2=10, ovsp3=10
-SW2 server ports: ovs2p1=20, ovs2p2=20, ovs2p3=20, ovs2p6=20
+SW2 ports: ovs2p1=20, ovs2p3=20, ovs2p6=25, ovs2p2=35, ovs2p11=35,
+ovs2p12=25, ovs2p13=35
 SW2 database ports: ovs2p4=30, ovs2p5=30
 ```
 
@@ -400,9 +406,9 @@ Test the main network path from PC1:
 ```bash
 docker exec clab-step2-switch-pc1 ping -c 3 10.10.10.1
 docker exec clab-step2-switch-pc1 ping -c 3 10.10.10.20
-docker exec clab-step2-switch-pc1 ping -c 3 10.10.20.10
+docker exec clab-step2-switch-pc1 ping -c 3 10.10.35.10
 docker exec clab-step2-switch-pc1 ping -c 3 10.10.20.20
-docker exec clab-step2-switch-pc1 ping -c 3 10.10.20.30
+docker exec clab-step2-switch-pc1 ping -c 3 10.10.25.30
 docker exec clab-step2-switch-pc1 ping -c 3 10.10.30.10
 ```
 
@@ -421,7 +427,7 @@ The response should contain `Enterprise Web Server - WEB1`.
 
 ```bash
 docker exec clab-step2-switch-pc1 \
-  wget -qO- http://10.10.20.30:3000/api/health
+  wget -qO- http://10.10.25.30:3000/api/health
 ```
 
 Expected response:
@@ -453,7 +459,7 @@ The application database-backed endpoint can be tested directly:
 
 ```bash
 docker exec clab-step2-switch-pc1 \
-  wget -qO- 'http://10.10.20.30:3000/api/users/search?name=appuser'
+  wget -qO- 'http://10.10.25.30:3000/api/users/search?name=appuser'
 ```
 
 ### Full WEB1 -> APP1 -> DB1 request

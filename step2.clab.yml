@@ -15,7 +15,7 @@ topology:
 
     sw1:
       kind: ovs-bridge
-    
+
     sw2:
       kind: ovs-bridge
 
@@ -47,7 +47,18 @@ topology:
         - ip link set eth1 up
         - ip link set eth2 up
         - ip link set eth3 up
-        - sh -c 'nohup sh -c "apk add --no-cache dnsmasq && exec dnsmasq --no-daemon -i eth1 -i eth2 -i eth3 --address=/frontend.enterprise.local/10.10.20.20 --address=/app.enterprise.local/10.10.20.30 --address=/db.enterprise.local/10.10.30.10 --dhcp-range=set:servers,10.10.20.100,10.10.20.150,255.255.255.0,24h --dhcp-range=set:users,10.10.10.100,10.10.10.150,255.255.255.0,24h --dhcp-range=set:iot,10.10.40.100,10.10.40.150,255.255.255.0,12h --dhcp-option=tag:servers,3,10.10.20.1 --dhcp-option=tag:users,3,10.10.10.1 --dhcp-option=tag:users,6,10.10.10.2" >/var/log/dnsmasq.log 2>&1 </dev/null &'
+        - sh -c 'nohup sh -c "apk add --no-cache dnsmasq && exec dnsmasq
+          --no-daemon -i eth1 -i eth2 -i eth3
+          --address=/frontend.enterprise.local/10.10.20.20
+          --address=/app.enterprise.local/10.10.25.30
+          --address=/db.enterprise.local/10.10.30.10
+          --dhcp-range=interface:eth1,10.10.20.100,10.10.20.150,255.255.255.0,24h
+          --dhcp-range=interface:eth2,10.10.10.100,10.10.10.150,255.255.255.0,24h
+          --dhcp-range=interface:eth3,10.10.40.100,10.10.40.150,255.255.255.0,12h
+          --dhcp-option=interface:eth1,3,10.10.20.1
+          --dhcp-option=interface:eth2,3,10.10.10.1
+          --dhcp-option=interface:eth2,6,10.10.10.2" >/var/log/dnsmasq.log 2>&1
+          </dev/null &'
 
     iot1:
       kind: linux
@@ -86,23 +97,33 @@ topology:
       kind: linux
       image: alpine:3.21.3
       exec:
-        - ip addr add 10.10.20.10/24 dev eth1
+        - ip addr add 10.10.35.10/24 dev eth1
         - ip link set eth1 up
-        - sh -c 'apk add --no-cache openssh && adduser -D labuser && echo "labuser:labpassword" | chpasswd && ssh-keygen -A && printf "PasswordAuthentication yes\nPermitRootLogin no\n" >> /etc/ssh/sshd_config'
+        - sh -c 'apk add --no-cache openssh && adduser -D labuser && echo
+          "labuser:labpassword" | chpasswd && ssh-keygen -A && printf
+          "PasswordAuthentication yes\nPermitRootLogin no\n" >>
+          /etc/ssh/sshd_config'
         - ip route del default dev eth0
-        - ip route replace default via 10.10.20.1
+        - ip route replace default via 10.10.35.1
         - /usr/sbin/sshd
 
     files1:
       kind: linux
       image: alpine:3.21.3
       exec:
-        - ip addr add 10.10.20.40/24 dev eth1
+        - ip addr add 10.10.35.40/24 dev eth1
         - ip link set eth1 up
-        - sh -c 'apk add --no-cache samba && mkdir -p /srv/share && echo "Enterprise shared folder" > /srv/share/README.txt && printf "[global]\n  workgroup = WORKGROUP\n  server string = Enterprise Samba Server\n  security = user\n  map to guest = Bad User\n  server min protocol = SMB2\n\n[shared]\n  path = /srv/share\n  browseable = yes\n  read only = no\n  guest ok = yes\n  force user = root\n" > /etc/samba/smb.conf'
+        - sh -c 'apk add --no-cache samba && mkdir -p /srv/share && echo
+          "Enterprise shared folder" > /srv/share/README.txt && printf
+          "[global]\n  workgroup = WORKGROUP\n  server string = Enterprise Samba
+          Server\n  security = user\n  map to guest = Bad User\n  server min
+          protocol = SMB2\n\n[shared]\n  path = /srv/share\n  browseable =
+          yes\n  read only = no\n  guest ok = yes\n  force user = root\n" >
+          /etc/samba/smb.conf'
         - ip route del default dev eth0
-        - ip route replace default via 10.10.20.1
-        - sh -c 'nohup smbd --foreground --no-process-group --configfile=/etc/samba/smb.conf >/var/log/smbd.log 2>&1 </dev/null &'
+        - ip route replace default via 10.10.35.1
+        - sh -c 'nohup smbd --foreground --no-process-group
+          --configfile=/etc/samba/smb.conf >/var/log/smbd.log 2>&1 </dev/null &'
     web1:
       kind: linux
       image: enterprise-web:2.0
@@ -115,10 +136,10 @@ topology:
       kind: linux
       image: enterprise-app:1.0
       exec:
-        - ip addr add 10.10.20.30/24 dev eth1
+        - ip addr add 10.10.25.30/24 dev eth1
         - ip link set eth1 up
         - ip route del default dev eth0
-        - ip route replace default via 10.10.20.1
+        - ip route replace default via 10.10.25.1
     db1:
       kind: linux
       image: postgres:18.0-alpine3.21
@@ -137,41 +158,43 @@ topology:
   links:
 
     # Router → switch
-    - endpoints: ["r1:eth1", "sw1:ovsp1"]
+    - endpoints: [ "r1:eth1", "sw1:ovsp1" ]
 
     # DHCP server → users VLAN
-    - endpoints: ["dhcp1:eth2", "sw1:ovsp4"]
+    - endpoints: [ "dhcp1:eth2", "sw1:ovsp4" ]
 
     # Users → switch
-    - endpoints: ["pc1:eth1", "sw1:ovsp2"]
-    - endpoints: ["pc2:eth1", "sw1:ovsp3"]
+    - endpoints: [ "pc1:eth1", "sw1:ovsp2" ]
+    - endpoints: [ "pc2:eth1", "sw1:ovsp3" ]
 
     # Router → sw2
-    - endpoints: ["r1:eth2", "sw2:ovs2p1"]
+    - endpoints: [ "r1:eth2", "sw2:ovs2p1" ]
+    - endpoints: [ "r1:eth4", "sw2:ovs2p12" ]
+    - endpoints: [ "r1:eth5", "sw2:ovs2p13" ]
 
     # probe1 -> sw2
-    - endpoints: ["probe1:eth1", "sw2:ovs2p_probe"]
+    - endpoints: [ "probe1:eth1", "sw2:ovs2p_probe" ]
     # probe2 -> sw1
-    - endpoints: ["probe2:eth1", "sw1:ovsp_probe"]
+    - endpoints: [ "probe2:eth1", "sw1:ovsp_probe" ]
 
-    # server → sw2
-    - endpoints: ["srv1:eth1", "sw2:ovs2p2"]
-    # Windows-compatible file server → server VLAN
-    - endpoints: ["files1:eth1", "sw2:ovs2p11"]
+    # management/infrastructure servers → sw2
+    - endpoints: [ "srv1:eth1", "sw2:ovs2p2" ]
+    # Windows-compatible file server → management VLAN
+    - endpoints: [ "files1:eth1", "sw2:ovs2p11" ]
     #web -> sw2
-    - endpoints: ["web1:eth1", "sw2:ovs2p3"]
-    # Application server → Server VLAN
-    - endpoints: ["app1:eth1", "sw2:ovs2p6"]
+    - endpoints: [ "web1:eth1", "sw2:ovs2p3" ]
+    # Application server → Application VLAN
+    - endpoints: [ "app1:eth1", "sw2:ovs2p6" ]
 
     # R1 → Database VLAN
-    - endpoints: ["r1:eth3", "sw2:ovs2p4"]
+    - endpoints: [ "r1:eth3", "sw2:ovs2p4" ]
 
     # Database server → Database VLAN
-    - endpoints: ["db1:eth1", "sw2:ovs2p5"]
+    - endpoints: [ "db1:eth1", "sw2:ovs2p5" ]
 
     # Enterprise DHCP and IoT
-    - endpoints: ["dhcp1:eth1", "sw2:ovs2p7"]
+    - endpoints: [ "dhcp1:eth1", "sw2:ovs2p7" ]
     # IoT VLAN 40
-    - endpoints: ["dhcp1:eth3", "sw2:ovs2p10"]
-    - endpoints: ["iot1:eth1", "sw2:ovs2p8"]
-    - endpoints: ["iot2:eth1", "sw2:ovs2p9"]
+    - endpoints: [ "dhcp1:eth3", "sw2:ovs2p10" ]
+    - endpoints: [ "iot1:eth1", "sw2:ovs2p8" ]
+    - endpoints: [ "iot2:eth1", "sw2:ovs2p9" ]

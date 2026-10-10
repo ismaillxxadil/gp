@@ -11,7 +11,9 @@ FRRouting, Zeek, Nginx, Node.js, PostgreSQL, OpenSSH, and Samba.
 ```text
                          +-- VLAN 10 -- PC1, PC2
                          |
-R1 (FRR router) ---------+-- VLAN 20 -- SRV1, WEB1, APP1, FILES1
+R1 (FRR router) ---------+-- VLAN 20 -- WEB1
+                         +-- VLAN 25 -- APP1
+                         +-- VLAN 35 -- SRV1, FILES1
                          |
                          +-- VLAN 30 -- DB1
                          |
@@ -28,13 +30,13 @@ isolated: IoT clients receive DHCP addresses but no default gateway.
 
 | Node | Image/service | Interface/address | Purpose |
 | --- | --- | --- | --- |
-| `r1` | `quay.io/frrouting/frr:10.7.1` | `eth1`: 10.10.10.1, `eth2`: 10.10.20.1, `eth3`: 10.10.30.1 | Inter-VLAN router |
+| `r1` | `quay.io/frrouting/frr:10.7.1` | `eth1`: 10.10.10.1, `eth2`: 10.10.20.1, `eth3`: 10.10.30.1, `eth4`: 10.10.25.1, `eth5`: 10.10.35.1 | Inter-VLAN router |
 | `pc1` | `alpine:3.21.3` | DHCP on VLAN 10 | User workstation |
 | `pc2` | `alpine:3.21.3` | DHCP on VLAN 10 | User workstation |
-| `srv1` | `alpine:3.21.3` + OpenSSH | 10.10.20.10 | SSH server |
+| `srv1` | `alpine:3.21.3` + OpenSSH | 10.10.35.10 | SSH server |
 | `web1` | `enterprise-web:2.0` + Nginx | 10.10.20.20 | Frontend and reverse proxy |
-| `app1` | `enterprise-app:1.0` + Node.js | 10.10.20.30:3000 | Application API |
-| `files1` | `alpine:3.21.3` + Samba | 10.10.20.40 | Windows-compatible SMB file server |
+| `app1` | `enterprise-app:1.0` + Node.js | 10.10.25.30:3000 | Application API |
+| `files1` | `alpine:3.21.3` + Samba | 10.10.35.40 | Windows-compatible SMB file server |
 | `db1` | `postgres:18.0-alpine3.21` | 10.10.30.10:5432 | PostgreSQL database |
 | `dhcp1` | `alpine:3.21.3` + dnsmasq | 10.10.10.2, 10.10.20.2, 10.10.40.2 | DHCP and DNS |
 | `iot1` | `alpine:3.21.3` | DHCP on VLAN 40 | Quiet IoT endpoint |
@@ -47,8 +49,10 @@ isolated: IoT clients receive DHCP addresses but no default gateway.
 | VLAN | Network | OVS ports | Members |
 | --- | --- | --- | --- |
 | 10 | 10.10.10.0/24 | `sw1`: `ovsp1`-`ovsp4` | R1, PC1, PC2, DHCP1 |
-| 20 | 10.10.20.0/24 | `sw2`: `ovs2p1`, `ovs2p2`, `ovs2p3`, `ovs2p6`, `ovs2p7`, `ovs2p11` | R1, SRV1, WEB1, APP1, DHCP1, FILES1 |
+| 20 | 10.10.20.0/24 | `sw2`: `ovs2p1`, `ovs2p3`, `ovs2p7` | R1, WEB1, DHCP1 |
+| 25 | 10.10.25.0/24 | `sw2`: `ovs2p6`, `ovs2p12` | R1, APP1 |
 | 30 | 10.10.30.0/24 | `sw2`: `ovs2p4`, `ovs2p5` | R1, DB1 |
+| 35 | 10.10.35.0/24 | `sw2`: `ovs2p2`, `ovs2p11`, `ovs2p13` | R1, SRV1, FILES1 |
 | 40 | 10.10.40.0/24 | `sw2`: `ovs2p8`-`ovs2p10` | IOT1, IOT2, DHCP1 |
 
 `ovs2p_probe` and `ovsp_probe` are mirror output ports and must not be given
@@ -66,7 +70,7 @@ Internal DNS records:
 
 ```text
 frontend.enterprise.local -> 10.10.20.20
-app.enterprise.local      -> 10.10.20.30
+app.enterprise.local      -> 10.10.25.30
 db.enterprise.local       -> 10.10.30.10
 ```
 
@@ -80,7 +84,7 @@ PC1 and PC2 explicitly use `10.10.10.2` because Docker initially supplies
 - The API uses PostgreSQL at `10.10.30.10`.
 - `srv1` accepts SSH as `labuser` with password `labpassword`.
 - `files1` provides an anonymous read/write SMB share at `\\files1\shared`.
-  Its lab IP is `10.10.20.40`; use `//10.10.20.40/shared` from SMB clients.
+  Its lab IP is `10.10.35.40`; use `//10.10.35.40/shared` from SMB clients.
 
 ## Start and rebuild
 
@@ -137,14 +141,14 @@ docker exec clab-step2-switch-pc1 wget -T 5 -qO- \
 Test SSH:
 
 ```bash
-docker exec -it clab-step2-switch-pc1 ssh labuser@10.10.20.10
+docker exec -it clab-step2-switch-pc1 ssh labuser@10.10.35.10
 ```
 
 Test the Samba server:
 
 ```bash
 docker exec clab-step2-switch-pc1 apk add --no-cache samba-client
-docker exec clab-step2-switch-pc1 smbclient -N //10.10.20.40/shared -c 'ls'
+docker exec clab-step2-switch-pc1 smbclient -N //10.10.35.40/shared -c 'ls'
 ```
 
 Inspect Samba logs and processes:
