@@ -1,0 +1,56 @@
+# Local database state
+db1/data/
+
+# Zeek probe logs
+probe-logs/*
+probe2-logs/*
+
+# Node.js dependencies
+app1/node_modules/
+
+# Containerlab generated state
+clab-step2-switch/.state.clab.yaml
+clab-step2-switch/topology-data.json
+clab-step2-switch/ansible-inventory.yml
+clab-step2-switch/nornir-simple-inventory.yml
+step2.clab.yml.annotations.json
+
+# Local/editor/system files
+.DS_Store
+.vscode/
+*.swp
+
+# NOTLINE local configuration and runtime data
+infrastructure/.env
+probe-logs/
+probe2-logs/
+db1/data/
+clab-*/
+backend/.venv/
+__pycache__/
+.pytest_cache/
+
+# Python generated files
+*.egg-info/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+.venv/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Runtime data
+probe-logs/
+probe2-logs/
+db1/data/
+clab-*/
+
+# Local development notes and reference material
+/commands.txt
+/context.md
+/propmt.txt
+/notline.pdf
+README.old.md
