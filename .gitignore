@@ -27,6 +27,7 @@ probe2-logs/
 db1/data/
 clab-*/
 backend/.venv/
+backend/.cache/
 __pycache__/
 .pytest_cache/
 

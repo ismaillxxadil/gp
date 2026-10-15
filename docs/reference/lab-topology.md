@@ -1,0 +1,127 @@
+# Enterprise lab topology reference
+
+The lab is an isolated, segmented enterprise network used to produce passive
+security evidence. The authoritative topology definition is
+[step2.clab.yml](../../step2.clab.yml); this page explains the intended roles
+and the interfaces between the lab and the digital-twin pipeline.
+
+## Logical layout
+
+~~~text
+                         R1 / FRRouting
+                    /        |        \
+                 SW1        SW2       VLAN gateways
+              VLAN 10       |\
+            PC1 PC2       WEB1 -> APP1 -> DB1
+              DHCP/DNS     |       |       |
+                           HTTP    Node.js PostgreSQL
+
+                    SRV1 / SSH       FILES1 / SMB
+                    IOT1 / IOT2      PROBE1 <- SW2 SPAN
+                                     PROBE2 <- SW1 SPAN
+~~~
+
+There are thirteen Containerlab Linux nodes plus two OVS bridge nodes:
+
+| Node | Image/service | Address or interface | Role |
+| --- | --- | --- | --- |
+| r1 | FRRouting 10.7.1 | eth1–eth5: VLAN gateways | Inter-VLAN router |
+| pc1 | Alpine 3.21.3 | DHCP on VLAN 10 | User workstation and traffic source |
+| pc2 | Alpine 3.21.3 | DHCP on VLAN 10 | User workstation and traffic source |
+| dhcp1 | Alpine 3.21.3 + dnsmasq | 10.10.10.2, 10.10.20.2, 10.10.40.2 | DHCP and internal DNS |
+| web1 | enterprise-web:2.0 + NGINX | 10.10.20.20 | Frontend and API reverse proxy |
+| app1 | enterprise-app:1.0 + Node.js | 10.10.25.30:3000 | Application API |
+| db1 | PostgreSQL 18.0-alpine3.21 | 10.10.30.10:5432 | Application database |
+| srv1 | Alpine 3.21.3 + OpenSSH | 10.10.35.10:22 | Internal SSH server |
+| files1 | Alpine 3.21.3 + Samba | 10.10.35.40:445 | SMB file server |
+| iot1 | Alpine 3.21.3 | DHCP on VLAN 40 | Isolated IoT endpoint |
+| iot2 | Alpine 3.21.3 | DHCP on VLAN 40 | Isolated IoT endpoint |
+| probe1 | Zeek 7.0.5 | Passive eth1 on SW2 | Server/database/IoT-side sensor |
+| probe2 | Zeek 7.0.5 | Passive eth1 on SW1 | User-side sensor |
+
+sw1 and sw2 are OVS bridge nodes rather than application containers.
+
+## VLANs and ports
+
+| VLAN | Network | OVS access ports | Members |
+| --- | --- | --- | --- |
+| 10 | 10.10.10.0/24 | SW1 ovsp1–ovsp4 | R1, PC1, PC2, DHCP1 |
+| 20 | 10.10.20.0/24 | SW2 ovs2p1, ovs2p3, ovs2p7 | R1, WEB1, DHCP1 |
+| 25 | 10.10.25.0/24 | SW2 ovs2p6, ovs2p12 | R1, APP1 |
+| 30 | 10.10.30.0/24 | SW2 ovs2p4, ovs2p5 | R1, DB1 |
+| 35 | 10.10.35.0/24 | SW2 ovs2p2, ovs2p11, ovs2p13 | R1, SRV1, FILES1 |
+| 40 | 10.10.40.0/24 | SW2 ovs2p8–ovs2p10 | DHCP1, IOT1, IOT2 |
+
+VLAN tags are applied by [vlan-config.sh](../../config/vlan-config.sh). The
+probe output ports ovsp_probe and ovs2p_probe are mirror destinations and must
+not receive an access VLAN tag.
+
+## Router interfaces
+
+[r1/frr.conf](../../r1/frr.conf) configures these gateway addresses:
+
+| Interface | Network role | Address |
+| --- | --- | --- |
+| eth1 | Users | 10.10.10.1/24 |
+| eth2 | Server/web | 10.10.20.1/24 |
+| eth3 | Database | 10.10.30.1/24 |
+| eth4 | Application | 10.10.25.1/24 |
+| eth5 | Management | 10.10.35.1/24 |
+
+VLAN 40 clients receive DHCP addresses but intentionally do not receive a
+default gateway from dnsmasq, keeping the simulated IoT segment isolated.
+
+## Application and infrastructure services
+
+The normal application path is:
+
+~~~text
+PC1/PC2 -> frontend.enterprise.local:80
+        -> WEB1 NGINX reverse proxy
+        -> APP1:3000
+        -> DB1:5432 PostgreSQL
+~~~
+
+Internal DNS records are configured by dhcp1:
+
+| Name | Address |
+| --- | --- |
+| frontend.enterprise.local | 10.10.20.20 |
+| app.enterprise.local | 10.10.25.30 |
+| db.enterprise.local | 10.10.30.10 |
+
+Additional traffic-producing services are SSH on srv1 and SMB on files1. The
+application and web image definitions are [app1/Dockerfile](../../app1/Dockerfile)
+and [web1/Dockerfile](../../web1/Dockerfile). Their pinned runtime versions
+must stay aligned with the security targets in the backend.
+
+## Passive monitoring path
+
+~~~text
+SW1 select-all SPAN -> ovsp_probe -> probe2:eth1 -> probe2-logs/
+SW2 select-all SPAN -> ovs2p_probe -> probe1:eth1 -> probe-logs/
+~~~
+
+The probes start Zeek with JSON logging in
+[step2.clab.yml](../../step2.clab.yml). The import profile reads:
+
+- probe-logs/conn.log and probe-logs/dhcp.log for probe1;
+- probe2-logs/conn.log and probe2-logs/dhcp.log for probe2.
+
+The monitoring path is passive. The traffic generator creates ordinary lab
+requests; it does not replace the Zeek evidence with synthetic graph edges.
+
+## Runtime persistence
+
+| Data | Location | Lifecycle |
+| --- | --- | --- |
+| Neo4j database and logs | Docker named volumes from infrastructure/compose.yaml | Survives lab container rebuilds |
+| PostgreSQL data | db1/data/ bind mount | Survives Containerlab rebuilds |
+| Zeek logs | probe-logs/, probe2-logs/ bind mounts | Survive container recreation until cleared |
+| Containerlab generated state | clab-step2-switch/ | Regenerated by deployment |
+| Local credentials | infrastructure/.env | Local-only; never commit or copy into docs |
+
+The deployment scripts intentionally recreate the Containerlab topology. Changes
+made interactively inside ephemeral lab containers can disappear on the next
+start; put durable changes in topology/configuration files or bind-mounted
+state.

@@ -25,6 +25,59 @@ def test_valid_connection():
     assert result.source_packets == 5
 
 
+def test_connection_normalizes_layered_smb_services():
+    record = {
+        "ts": 1000.0,
+        "uid": "Csmb123",
+        "id.orig_h": "10.10.10.107",
+        "id.orig_p": 40000,
+        "id.resp_h": "10.10.35.40",
+        "id.resp_p": 445,
+        "proto": "tcp",
+        "service": "gssapi,dce_rpc,ntlm,smb",
+    }
+
+    result = parse_connection(record, "probe1")
+
+    assert result is not None
+    assert result.service == "smb"
+    assert result.service_source == "zeek_conn"
+    assert result.service_components == ["gssapi", "dce_rpc", "ntlm", "smb"]
+
+
+def test_connection_preserves_http_metadata():
+    record = {
+        "ts": 1792040966.197872,
+        "uid": "Cstlfw43PCAPTEST",
+        "id.orig_h": "10.10.10.140",
+        "id.orig_p": 39472,
+        "id.resp_h": "10.10.20.20",
+        "id.resp_p": 80,
+        "proto": "tcp",
+        "service": "http",
+        "duration": 0.027773141860961914,
+        "orig_bytes": 87,
+        "resp_bytes": 431,
+        "orig_pkts": 7,
+        "resp_pkts": 5,
+        "orig_ip_bytes": 459,
+        "resp_ip_bytes": 699,
+        "conn_state": "SF",
+    }
+
+    result = parse_connection(record, "probe1")
+
+    assert result is not None
+    assert result.service == "http"
+    assert result.service_source == "zeek_conn"
+    assert result.service_components == ["http"]
+    assert result.duration == 0.027773141860961914
+    assert result.source_bytes == 87
+    assert result.destination_bytes == 431
+    assert result.source_ip_bytes == 459
+    assert result.destination_ip_bytes == 699
+
+
 def test_reject_unspecified_source():
     record = {
         "ts": 1000.0,

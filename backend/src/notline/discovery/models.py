@@ -16,7 +16,16 @@ class ConnectionObservation(BaseModel):
     destination_port: int | None = None
 
     protocol: str
+    service: str | None = None
+    service_source: Literal["zeek_conn", "port_inference"] | None = None
+    service_components: list[str] = Field(default_factory=list)
     connection_state: str | None = None
+
+    duration: float | None = Field(default=None, ge=0)
+    source_bytes: int | None = Field(default=None, ge=0)
+    destination_bytes: int | None = Field(default=None, ge=0)
+    source_ip_bytes: int | None = Field(default=None, ge=0)
+    destination_ip_bytes: int | None = Field(default=None, ge=0)
 
     source_packets: int = Field(default=0, ge=0)
     destination_packets: int = Field(default=0, ge=0)
@@ -28,6 +37,10 @@ class DHCPObservation(BaseModel):
     mac: str
 
     requested_ip: str | None = None
+    assigned_ip: str | None = None
+    server_ip: str | None = None
+    lease_time: float | None = Field(default=None, ge=0)
+
     message_types: list[str] = Field(default_factory=list)
 
     assignment_status: Literal[

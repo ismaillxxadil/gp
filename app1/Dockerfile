@@ -1,10 +1,10 @@
-FROM node:22-alpine
+FROM node:22.22.3-alpine
 
 WORKDIR /app
 
-COPY package.json .
+COPY package.json package-lock.json .
 
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 COPY server.js .
 

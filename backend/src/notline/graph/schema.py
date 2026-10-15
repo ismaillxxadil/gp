@@ -1,6 +1,5 @@
 from neo4j import Driver
 
-
 CONSTRAINTS = [
     """
     CREATE CONSTRAINT asset_id_unique IF NOT EXISTS
@@ -21,6 +20,26 @@ CONSTRAINTS = [
     CREATE CONSTRAINT observation_id_unique IF NOT EXISTS
     FOR (o:Observation)
     REQUIRE o.observation_id IS UNIQUE
+    """,
+    """
+    CREATE CONSTRAINT cpe_name_unique IF NOT EXISTS
+    FOR (c:CPE)
+    REQUIRE c.cpe_name IS UNIQUE
+    """,
+    """
+    CREATE CONSTRAINT cve_id_unique IF NOT EXISTS
+    FOR (c:CVE)
+    REQUIRE c.cve_id IS UNIQUE
+    """,
+    """
+    CREATE CONSTRAINT component_id_unique IF NOT EXISTS
+    FOR (component:SoftwareComponent)
+    REQUIRE component.component_id IS UNIQUE
+    """,
+    """
+    CREATE CONSTRAINT advisory_id_unique IF NOT EXISTS
+    FOR (advisory:Advisory)
+    REQUIRE advisory.advisory_id IS UNIQUE
     """,
 ]
 

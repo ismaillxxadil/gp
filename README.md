@@ -1,1994 +1,364 @@
-
 # NOTLINE — Self-Healing Cybersecurity Digital Twin
 
-**A research-oriented cybersecurity digital twin platform for network monitoring, security analysis, and future autonomous threat response using intelligent agents and Large Language Models (LLMs).**
+NOTLINE is a research prototype for building a security-enriched digital twin
+of an isolated enterprise network. It passively observes traffic with Zeek,
+preserves the evidence in Neo4j, derives infrastructure relationships, and
+maps verified software identities to vulnerability and advisory data.
 
-> **Project status:** In development — the enterprise network lab, passive monitoring infrastructure, Neo4j environment, and initial Python backend components are implemented. Autonomous self-healing and LLM-based reasoning are planned features, not yet operational.
+The project is inspired by the NOTLINE research direction. The current
+implementation stops at the trusted graph and readiness boundary. Autonomous
+agents, LLM reasoning, adversary simulation, and automatic self-healing are
+planned extensions, not operational features yet.
 
-## 1. Project Overview
+## Current status
 
-NOTLINE is a graduation project inspired by research on non-intrusive cybersecurity digital twins.
+The following foundation is implemented and tested:
 
-Our goal is to develop a system that can observe an enterprise network, construct and maintain a digital representation of its infrastructure, analyze potential security risks, and eventually recommend or execute controlled defensive responses.
+- An isolated Containerlab enterprise network with VLANs, Open vSwitch
+  mirroring, FRRouting, application services, database services, DHCP/DNS,
+  IoT devices, and two Zeek probes.
+- Repeatable benign traffic generation for DNS, HTTP, the application path,
+  SSH, and SMB.
+- Passive JSON `conn.log` and `dhcp.log` ingestion from both probes.
+- Typed observation parsing, malformed-record rejection, discoverable-IP
+  filtering, service-label normalization, conservative port inference, and
+  cross-probe flow deduplication.
+- A Neo4j evidence graph containing observations, IP addresses, DHCP leases,
+  assets, services, and software components.
+- Derived IP communication, service, asset communication, and current-exposure
+  relationships.
+- DHCP-aware current, historical, and retired identity handling.
+- Exact NVD CPE resolution for verified services and runtime components.
+- NVD CVE applicability evaluation using CPE attributes, configuration
+  boolean logic, and version bounds.
+- Exact npm package inventory and OSV advisory scanning for package versions
+  that do not have a trusted CPE path.
+- Explicit unresolved-identity and scan-error states instead of guessed
+  security relationships.
+- Graph audit output for verified-path readiness, security coverage, and full
+  security simulation readiness.
+- Focused unit/contract tests and Ruff lint/format checks.
 
-The project combines:
+The current lab profile verifies these service identities:
 
-- **Network emulation** using Containerlab and Docker
-- **Network segmentation** using Open vSwitch and VLANs
-- **Routing** using FRRouting
-- **Passive network monitoring** using Zeek
-- **Graph-based digital twin storage** using Neo4j
-- **Security data processing** using Python
-- **Future intelligent analysis** using agents and LLMs
-- **Future self-healing mechanisms** for validated defensive actions
+| Service | Runtime evidence | Security identity |
+| --- | --- | --- |
+| PostgreSQL | 18.0 | Exact NVD CPE/CVE path |
+| Samba | 4.20.6 | Exact NVD CPE/CVE path |
+| OpenSSH | 9.9p2 | Exact NVD CPE/CVE path |
+| NGINX Open Source | 1.30.3 | Exact NVD CPE/CVE path |
+| Node.js | 22.22.3 | Exact NVD CPE/CVE path when verified |
+| Express and node-postgres | Exact npm lockfile versions | Exact OSV package path |
 
-The system is intended for an isolated research environment.
+A keyword search is never treated as proof of identity. An approximate CPE is
+not written into the graph.
 
-## 2. Project Architecture
-
-### Enterprise network
-
-```text
-                     Enterprise Network
-                             |
-                       FRRouting (R1)
-                             |
-              +--------------+--------------+
-              |                             |
-         OVS Switch 1                  OVS Switch 2
-              |                             |
-         VLAN 10 Users               VLAN 20 Web
-          PC1, PC2                   VLAN 25 App
-                                    VLAN 30 Database
-                                    VLAN 35 Management
-                                    VLAN 40 IoT
-
-          Zeek Probe 2               Zeek Probe 1
-              |                             |
-          OVS Mirror                    OVS Mirror
-```
-
-The network includes 13 Containerlab nodes:
-
-| Node | Role |
-|---|---|
-| `r1` | Enterprise router using FRRouting |
-| `pc1`, `pc2` | Employee workstations |
-| `dhcp1` | DHCP and DNS services |
-| `web1` | Nginx web frontend |
-| `app1` | Node.js / Express application |
-| `db1` | PostgreSQL database |
-| `srv1` | Internal server |
-| `files1` | File-sharing server |
-| `iot1`, `iot2` | Simulated IoT devices |
-| `probe1`, `probe2` | Zeek passive monitoring probes |
-
-### Application architecture
+## Architecture at a glance
 
 ```text
-PC1 / PC2
-    |
-    v
-WEB1 (Nginx)
-    |
-    v
-APP1 (Node.js / Express)
-    |
-    v
-DB1 (PostgreSQL)
+  Containerlab + Docker + OVS + FRRouting
+                  |
+                  v
+          Mirrored network traffic
+                  |
+                  v
+             Zeek probes
+                  |
+                  v
+        JSON conn.log / dhcp.log
+                  |
+                  v
+       Python parsing and normalization
+                  |
+                  v
+       Neo4j evidence and derived graph
+                  |
+                  v
+       NVD CPE/CVE + OSV enrichment
+                  |
+                  v
+          Graph audit and readiness
+                  |
+                  v
+    Future: simulation, agents, LLMs, response
 ```
 
-This application chain generates realistic network traffic for security monitoring and future attack-simulation experiments.
-
-### Cybersecurity digital twin architecture
+The main operational path is:
 
 ```text
-     Enterprise Network
-             |
-             v
-      OVS Port Mirroring
-             |
-             v
-       Zeek Monitoring
-             |
-             v
-       JSON Event Logs
-             |
-             v
-    Python Discovery Backend
-             |
-             v
-        Neo4j Graph
-             |
-             v
-   Future Security Analysis
-             |
-             v
-   Future Agents and LLMs
-             |
-             v
-  Future Controlled Response
+traffic -> Zeek logs -> import_zeek.py -> Neo4j graph
+                                      |
+                                      v
+                         enrich_vulnerabilities.py
+                                      |
+                                      v
+                              audit_graph.py
 ```
 
-**Important:** The architecture above includes both implemented components and planned integrations. Zeek logs are currently generated and the Neo4j environment is available, but automatic ingestion of Zeek events into the graph has not yet been completed.
+## Quick start
 
-## 3. Technology Stack
+Run these commands from the repository root.
 
-| Category | Technologies |
-|---|---|
-| Operating system | Ubuntu Linux / WSL2 |
-| Containers | Docker Engine |
-| Network emulation | Containerlab |
-| Virtual switching | Open vSwitch |
-| Routing | FRRouting |
-| Network monitoring | Zeek |
-| Graph database | Neo4j |
-| Relational database | PostgreSQL |
-| Backend | Python |
-| Web server | Nginx |
-| Application API | Node.js, Express |
-| Testing | pytest |
-| Version control | Git, GitHub |
-| Planned intelligence | Security agents, LLM integration |
+### Prerequisites
 
-## 4. Repository Structure
+The host must provide:
 
-```text
-gp-main/
-|
-|-- README.md
-|-- .gitignore
-|-- step2.clab.yml
-|-- start-lab.sh
-|
-|-- scripts/
-|   |-- setup.sh
-|   |-- start.sh
-|   `-- init_graph.py
-|
-|-- config/
-|   `-- vlan-config.sh
-|
-|-- infrastructure/
-|   |-- compose.yaml
-|   `-- .env              # Generated locally, not committed
-|
-|-- backend/
-|   |-- pyproject.toml
-|   |-- src/notline/
-|   |   |-- discovery/
-|   |   `-- graph/
-|   `-- tests/
-|
-|-- r1/
-|-- web1/
-|-- app1/
-|
-|-- db1/data/             # Local runtime data
-|-- probe-logs/           # Local Zeek logs
-`-- probe2-logs/          # Local Zeek logs
-```
+- Docker Engine and Docker Compose;
+- Containerlab;
+- Open vSwitch;
+- Python 3;
+- Git;
+- permission to run the required Containerlab and OVS commands with
+  `sudo`.
 
-Runtime data, local credentials, virtual environments, and generated Containerlab directories are excluded from Git.
-
-## 5. System Requirements
-
-The project is designed for an Ubuntu Linux environment, including Ubuntu running under WSL2 on Windows.
-
-### Required software
-
-- Git
-- Docker Engine
-- Docker Compose
-- Containerlab
-- Open vSwitch
-- Python 3 with virtual environment support
-- Internet access for initial image downloads and package installation
-- Sudo privileges for network configuration
-
-For Windows users, WSL2 with Ubuntu is recommended.
-
-### Installation resources
-
-Follow the official installation documentation for your operating system:
-
-- [Docker Engine for Ubuntu](https://docs.docker.com/engine/install/ubuntu/)
-- [Containerlab Installation](https://containerlab.dev/install/)
-- [Open vSwitch Documentation](https://docs.openvswitch.org/)
-- [WSL Installation](https://learn.microsoft.com/windows/wsl/install)
-
-On Ubuntu, the Open vSwitch package is commonly installed using:
-
-```bash
-sudo apt update
-sudo apt install -y openvswitch-switch
-```
-
-Ensure Docker and Open vSwitch are running before proceeding.
-
-## 6. Quick Start
-
-### Step 1 — Clone the repository
-
-```bash
-git clone <YOUR-PRIVATE-REPOSITORY-URL>
-cd <YOUR-REPOSITORY-DIRECTORY>
-```
-
-Replace the placeholders with the actual private GitHub repository URL and directory name.
-
-Your GitHub account must have access to the repository.
-
-### Step 2 — Run first-time setup
+### First-time setup
 
 ```bash
 ./scripts/setup.sh
 ```
 
-This script:
+This creates `backend/.venv`, installs the backend and development
+dependencies, creates runtime directories, generates a local Neo4j password in
+`infrastructure/.env` when needed, and prepares the OVS bridges.
 
-1. Checks required tools.
-2. Verifies Docker and Docker Compose.
-3. Creates the Python virtual environment.
-4. Installs the backend package and development dependencies.
-5. Creates required runtime directories.
-6. Generates a local Neo4j password if one does not already exist.
-7. Initializes the OVS bridges.
+The environment file is local and ignored by Git. Do not commit it.
 
-The generated `infrastructure/.env` file must remain private.
-
-### Step 3 — Start NOTLINE
+### Start the lab
 
 ```bash
 ./scripts/start.sh
 ```
 
-The startup script automatically:
+This starts Neo4j, rebuilds the pinned web and application images, deploys the
+Containerlab topology, applies VLAN configuration, and recreates the OVS SPAN
+mirrors.
 
-1. Starts Neo4j.
-2. Builds the web and application Docker images.
-3. Prepares the OVS bridges and runtime directories.
-4. Destroys and rebuilds the Containerlab network.
-5. Applies VLAN configuration.
-6. Configures OVS SPAN traffic mirrors for both Zeek probes.
+Startup destroys and recreates the ephemeral Containerlab deployment. Persist
+any intended change in the repository before running it again.
 
-**Startup can take several minutes**, especially when Containerlab installs packages inside containers.
-
-Do not interrupt the process simply because the output pauses temporarily.
-
-The startup is complete when you see:
-
-```text
-=== Lab successfully deployed with active NOTLINE monitoring! ===
-=== NOTLINE Started ===
-Neo4j: http://localhost:7474
-```
-
-**Note:** The current startup workflow intentionally destroys and recreates the Containerlab deployment each time. Ephemeral changes inside the lab containers may be lost. Persisted bind-mounted data and Neo4j volumes are managed separately.
-
-## 7. Verify the Deployment
-
-### Check the containers
+Verify the deployment:
 
 ```bash
-docker ps --format 'table {{.Names}}\t{{.Status}}'
+docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' | grep clab-step2-switch
+docker ps --filter name=notline-neo4j
+curl -fsS http://localhost:7474 >/dev/null && echo 'Neo4j HTTP is ready'
 ```
 
-You should see 13 Containerlab nodes and the Neo4j container.
+Neo4j Browser is available at <http://localhost:7474>.
 
-### Inspect the lab
+## Build the graph from current traffic
+
+Neo4j and the lab must be running before these commands.
+
+### 1. Initialize a fresh graph
+
+The schema command is idempotent. Run it for a new database:
 
 ```bash
-sudo containerlab inspect -t step2.clab.yml
+backend/.venv/bin/python scripts/init_graph.py
+backend/.venv/bin/python backend/scripts/seed_inventory.py
 ```
 
-### Check OVS
+`seed_inventory.py` writes the stable topology assets and their configured
+addresses. The security enrichment stage also ensures the schema exists, but
+explicit initialization makes a fresh deployment easier to understand.
+
+### 2. Generate benign traffic
 
 ```bash
-sudo ovs-vsctl show
+TRAFFIC_ROUNDS=3 ./scripts/generate_lab_traffic.sh
 ```
 
-Confirm that `sw1` and `sw2` exist and that the expected ports are attached without missing-interface errors.
+This produces passive evidence for DNS, the NGINX frontend and proxied API,
+SSH, and SMB. It does not perform adversary activity.
 
-### Check Zeek logs
+### 3. Import Zeek evidence
 
 ```bash
-ls -lh probe-logs/
-ls -lh probe2-logs/
+backend/.venv/bin/python backend/scripts/import_zeek.py
 ```
 
-Inspect recent connection records:
+The importer parses both configured probes, normalizes service evidence, groups
+mirrored records into canonical flows, writes observations and DHCP assignments,
+classifies current versus historical identities, and refreshes derived
+communication relationships.
+
+For a different capture cadence:
 
 ```bash
-tail -n 5 probe-logs/conn.log
+NOTLINE_DHCP_ACTIVITY_WINDOW_SECONDS=3600 \
+  backend/.venv/bin/python backend/scripts/import_zeek.py
 ```
 
-Zeek connection logs are configured to use JSON records.
+### 4. Enrich security relationships
 
-The presence of valid recent records confirms that a probe has captured network traffic. It does not by itself guarantee complete visibility across every VLAN or application.
+```bash
+backend/.venv/bin/python backend/scripts/enrich_vulnerabilities.py
+```
 
-### Open Neo4j
+This stage:
 
-Open:
+- resolves configured service/runtime identities to exact active NVD CPEs;
+- fetches CVE records and writes only applicable CPE-to-CVE relationships;
+- records unresolved CPE evidence without guessing;
+- inventories exact npm packages from `app1/package-lock.json`;
+- queries OSV for exact package versions;
+- refreshes asset-to-CVE and asset-to-advisory exposure edges.
 
-http://localhost:7474
+NVD and OSV responses are cached under `backend/.cache/`, which is ignored
+runtime data.
 
-Use the Neo4j credentials configured locally in `infrastructure/.env`.
+### 5. Audit readiness
 
-The graph database is currently prepared for the digital twin, but live network-to-graph synchronization remains under development.
+```bash
+backend/.venv/bin/python backend/scripts/audit_graph.py
+```
 
-## 8. Python Backend
+Read the three decisions separately:
 
-The backend is organized as an installable Python package.
+- **Verified-path simulation readiness**: the graph has the evidence and derived
+  relationships required for a verified simulation path.
+- **Security coverage**: security identities have either verified CPE/CVE
+  evidence or a completed alternative advisory scan.
+- **Full security simulation readiness**: both conditions pass.
 
-Current components include:
+A passing audit means the graph prerequisites are satisfied. It does not mean
+the adversary-simulation engine or self-healing agent has been implemented.
 
-- Pydantic-based discovery models
-- Zeek log parsing
-- Neo4j connection management
-- Initial graph schema and constraints
-- Unit tests for Zeek parsing
+## Configuration boundary
 
-### Run backend tests
+Network-specific inputs are isolated in
+[`backend/src/notline/network_profile.py`](backend/src/notline/network_profile.py).
+
+The current profile contains the lab topology, probe log paths, trusted service
+targets, software-component declarations, npm lockfile sources, and DHCP
+activity-window policy.
+
+Select a configured profile with:
+
+```bash
+NOTLINE_NETWORK_PROFILE=notline-lab \
+  backend/.venv/bin/python backend/scripts/import_zeek.py
+```
+
+The reusable pipeline code is designed to support additional profiles, but a
+new network still needs its own inventory, evidence sources, runtime identity
+declarations, and validation. It is not automatically generic for every
+network yet.
+
+## Repository map
+
+| Area | Purpose |
+| --- | --- |
+| [`step2.clab.yml`](step2.clab.yml) | Containerlab topology, services, addresses, and probe mounts |
+| [`scripts/`](scripts/) | Setup, startup, graph initialization, and traffic generation |
+| [`backend/scripts/`](backend/scripts/) | Inventory, Zeek import, enrichment, and audit entry points |
+| [`backend/src/notline/discovery/`](backend/src/notline/discovery/) | Typed Zeek observations, service enrichment, inventory, and deduplication |
+| [`backend/src/notline/graph/`](backend/src/notline/graph/) | Neo4j connection, schema, evidence writers, derived edges, and audit |
+| [`backend/src/notline/security/`](backend/src/notline/security/) | NVD/OSV clients, CPE resolution, applicability, and security targets |
+| [`backend/tests/`](backend/tests/) | Unit and graph-writer contract tests |
+| [`docs/`](docs/) | Maintained architecture, operational, graph, security, and testing documentation |
+| [`infrastructure/compose.yaml`](infrastructure/compose.yaml) | Neo4j service definition |
+| [`app1/`](app1/) and [`web1/`](web1/) | Application and frontend container definitions |
+
+## How to learn the project
+
+Read the documentation in this order:
+
+1. [`docs/README.md`](docs/README.md) — documentation map, scope, and source-of-truth rules.
+2. [`docs/architecture/overview.md`](docs/architecture/overview.md) — system
+   boundaries, components, runtime data flow, and current limitations.
+3. [`docs/guides/deployment.md`](docs/guides/deployment.md) — prerequisites,
+   startup, verification, mirrors, probes, and troubleshooting.
+4. [`docs/guides/pipeline.md`](docs/guides/pipeline.md) — the repeatable
+   traffic-to-graph workflow and its stage contracts.
+5. [`docs/reference/graph-model.md`](docs/reference/graph-model.md) — node
+   labels, evidence relationships, derived relationships, freshness, and
+   exposure paths.
+6. [`docs/reference/discovery.md`](docs/reference/discovery.md) — how Zeek
+   records become observations, canonical flows, services, and assets.
+7. [`docs/reference/security-enrichment.md`](docs/reference/security-enrichment.md)
+   — exact CPE/CVE verification, applicability, NVD caching, npm inventory,
+   OSV, and exposure derivation.
+8. [`docs/reference/graph-writers.md`](docs/reference/graph-writers.md) — how
+   Neo4j writes and refreshes evidence and derived edges.
+9. [`docs/reference/code-map.md`](docs/reference/code-map.md) — executable
+   entry points, module responsibilities, dependency direction, and test map.
+10. [`docs/development/testing.md`](docs/development/testing.md) — test
+    boundaries, quality gates, live smoke checks, and change checklist.
+
+[`GRAPH_PIPELINE.md`](GRAPH_PIPELINE.md) is a short root-level command
+reference. The detailed and maintained explanation is
+[`docs/guides/pipeline.md`](docs/guides/pipeline.md).
+
+When documentation and behavior disagree, use this order:
+
+1. executable code and tests;
+2. deployment configuration and live verification;
+3. the maintained pages in [`docs/`](docs/);
+4. older handoff notes or copied narrative material.
+
+## Development roadmap
+
+### Next: stabilize and reproduce the trusted graph
+
+- Keep the fresh-deployment path reproducible from an empty Neo4j database.
+- Add a live smoke check that verifies traffic, Zeek capture, import, enrichment,
+  and audit in sequence.
+- Keep runtime versions, security target declarations, and graph evidence
+  synchronized.
+- Review and improve the public repository documentation and lab credential
+  handling before upload.
+
+### Then: simulation over the audited graph
+
+- Define a small, explicit scenario model for attacker entry points,
+  capabilities, actions, and observable effects.
+- Run read-only path analysis against the verified graph first.
+- Preserve scenario evidence and outcomes in a separate simulation layer.
+- Reject scenarios when the graph audit reports missing prerequisites.
+
+### Later: agents and LLM reasoning
+
+- Add agents only around trusted graph queries and explicit tools.
+- Make LLM output advisory and explainable, with source paths back to graph
+  evidence.
+- Evaluate hallucination, uncertainty, and unsafe action proposals.
+- Keep authorization, policy, and approval outside the model.
+
+### Last: controlled self-healing
+
+- Define a small allowlisted set of defensive actions.
+- Require policy checks, approval gates, rollback, and post-action validation.
+- Test only inside the isolated lab before considering broader deployment.
+
+## Testing and quality checks
 
 From the repository root:
 
 ```bash
-backend/.venv/bin/python -m pytest backend/tests -v
-```
-
-### Initialize graph schema
-
-```bash
-backend/.venv/bin/python scripts/init_graph.py
-```
-
-Run graph initialization only after Neo4j is available and the required environment configuration is present.
-
-## 9. Development Roadmap
-
-### Phase 1 — Enterprise Network Environment
-
-**Implemented**
-
-- Containerlab topology
-- Segmented enterprise network
-- FRRouting
-- Web, application, and database services
-- DHCP/DNS and simulated IoT devices
-- Two Zeek probes
-- OVS SPAN traffic mirroring
-
-### Phase 2 — Discovery and Digital Twin Construction
-
-**In progress**
-
-- Parse Zeek connection records
-- Develop incremental log ingestion
-- Identify observed hosts and communications
-- Model assets and relationships in Neo4j
-- Maintain and update the digital twin graph
-
-### Phase 3 — Security Analysis
-
-**Planned**
-
-- Enrich discovered assets with available service information
-- Investigate vulnerability and exposure analysis
-- Represent relevant attack paths and security relationships
-- Evaluate the quality of the digital twin against the emulated network
-
-### Phase 4 — Intelligent Agents and LLM Integration
-
-**Planned**
-
-- Develop security-analysis agent workflows
-- Integrate LLM-assisted reasoning
-- Generate explainable security recommendations
-- Evaluate accuracy, reliability, and limitations
-
-### Phase 5 — Controlled Self-Healing
-
-**Planned**
-
-- Define safe defensive actions
-- Introduce policy checks and approval controls
-- Execute selected responses in the isolated lab
-- Verify network recovery and service availability
-- Compare security outcomes before and after remediation
-
-The scope and implementation of later phases will be refined as the research progresses.
-
-## 10. Troubleshooting
-
-### Docker is unavailable
-
-Check:
-
-```bash
-docker info
-```
-
-Ensure the Docker daemon is running and your user has appropriate access.
-
-### Open vSwitch ports show "No such device"
-
-This can happen after restarting WSL or the laptop because container interfaces may no longer match the saved OVS configuration.
-
-Rebuild the lab using:
-
-```bash
-./scripts/start.sh
-```
-
-Do not launch multiple Containerlab deployments simultaneously.
-
-### Containerlab appears stuck
-
-Some topology startup commands install packages inside containers and may take several minutes.
-
-Wait for completion and check container status in another terminal:
-
-```bash
-docker ps -a
-```
-
-### Zeek reports that the `ip` command is missing
-
-The current Zeek container image may not include the `ip` utility.
-
-This can cause a topology initialization warning even when the interface is operational.
-
-Check the interface state:
-
-```bash
-docker exec clab-step2-switch-probe1 cat /sys/class/net/eth1/operstate
-```
-
-Then verify that recent connection logs are being generated.
-
-This initialization issue is a known improvement item.
-
-### Neo4j is still starting
-
-Check:
-
-```bash
-docker ps --filter name=notline-neo4j
-```
-
-Allow time for its health check to complete.
-
-## 11. Security and Research Boundaries
-
-This environment is designed for controlled cybersecurity research and experimentation.
-
-- Keep intentionally vulnerable services isolated from production networks.
-- Do not expose lab credentials or services publicly.
-- Do not commit `.env` files or runtime database data.
-- Use test data rather than real personal or organizational information.
-- Require appropriate validation and authorization before automated defensive actions.
-- Treat LLM recommendations as untrusted until independently checked.
-
-## 12. Team Collaboration
-
-The project is maintained in a private GitHub repository.
-
-Recommended development workflow:
-
-```bash
-git pull origin main
-git checkout -b feature/your-feature
-```
-
-Make your changes, run the relevant tests, and submit a pull request for review.
-
-Do not commit secrets, virtual environments, generated network state, or monitoring logs.
-
-## 13. Research Background
-
-This project is inspired by the NOTLINE research approach to non-intrusive cybersecurity digital twins.
-
-The current implementation is a research prototype extending the general concept toward intelligent security analysis and controlled self-healing.
-
-Full bibliographic references and research evaluation results will be added as the project develops.
-
----
-
-**Academic Graduation Project — Cybersecurity Digital Twin, Intelligent Agents, and LLM-Assisted Self-Healing**
-
-*Status: Active development.*# NOTLINE — Self-Healing Cybersecurity Digital Twin
-
-**A research-oriented cybersecurity digital twin platform for network monitoring, security analysis, and future autonomous threat response using intelligent agents and Large Language Models (LLMs).**
-
-> **Project status:** In development — the enterprise network lab, passive monitoring infrastructure, Neo4j environment, and initial Python backend components are implemented. Autonomous self-healing and LLM-based reasoning are planned features, not yet operational.
-
-## 1. Project Overview
-
-NOTLINE is a graduation project inspired by research on non-intrusive cybersecurity digital twins.
-
-Our goal is to develop a system that can observe an enterprise network, construct and maintain a digital representation of its infrastructure, analyze potential security risks, and eventually recommend or execute controlled defensive responses.
-
-The project combines:
-
-- **Network emulation** using Containerlab and Docker
-- **Network segmentation** using Open vSwitch and VLANs
-- **Routing** using FRRouting
-- **Passive network monitoring** using Zeek
-- **Graph-based digital twin storage** using Neo4j
-- **Security data processing** using Python
-- **Future intelligent analysis** using agents and LLMs
-- **Future self-healing mechanisms** for validated defensive actions
-
-The system is intended for an isolated research environment.
-
-## 2. Project Architecture
-
-### Enterprise network
-
-```text
-                     Enterprise Network
-                             |
-                       FRRouting (R1)
-                             |
-              +--------------+--------------+
-              |                             |
-         OVS Switch 1                  OVS Switch 2
-              |                             |
-         VLAN 10 Users               VLAN 20 Web
-          PC1, PC2                   VLAN 25 App
-                                    VLAN 30 Database
-                                    VLAN 35 Management
-                                    VLAN 40 IoT
-
-          Zeek Probe 2               Zeek Probe 1
-              |                             |
-          OVS Mirror                    OVS Mirror
-```
-
-The network includes 13 Containerlab nodes:
-
-| Node | Role |
-|---|---|
-| `r1` | Enterprise router using FRRouting |
-| `pc1`, `pc2` | Employee workstations |
-| `dhcp1` | DHCP and DNS services |
-| `web1` | Nginx web frontend |
-| `app1` | Node.js / Express application |
-| `db1` | PostgreSQL database |
-| `srv1` | Internal server |
-| `files1` | File-sharing server |
-| `iot1`, `iot2` | Simulated IoT devices |
-| `probe1`, `probe2` | Zeek passive monitoring probes |
-
-### Application architecture
-
-```text
-PC1 / PC2
-    |
-    v
-WEB1 (Nginx)
-    |
-    v
-APP1 (Node.js / Express)
-    |
-    v
-DB1 (PostgreSQL)
-```
-
-This application chain generates realistic network traffic for security monitoring and future attack-simulation experiments.
-
-### Cybersecurity digital twin architecture
-
-```text
-     Enterprise Network
-             |
-             v
-      OVS Port Mirroring
-             |
-             v
-       Zeek Monitoring
-             |
-             v
-       JSON Event Logs
-             |
-             v
-    Python Discovery Backend
-             |
-             v
-        Neo4j Graph
-             |
-             v
-   Future Security Analysis
-             |
-             v
-   Future Agents and LLMs
-             |
-             v
-  Future Controlled Response
-```
-
-**Important:** The architecture above includes both implemented components and planned integrations. Zeek logs are currently generated and the Neo4j environment is available, but automatic ingestion of Zeek events into the graph has not yet been completed.
-
-## 3. Technology Stack
-
-| Category | Technologies |
-|---|---|
-| Operating system | Ubuntu Linux / WSL2 |
-| Containers | Docker Engine |
-| Network emulation | Containerlab |
-| Virtual switching | Open vSwitch |
-| Routing | FRRouting |
-| Network monitoring | Zeek |
-| Graph database | Neo4j |
-| Relational database | PostgreSQL |
-| Backend | Python |
-| Web server | Nginx |
-| Application API | Node.js, Express |
-| Testing | pytest |
-| Version control | Git, GitHub |
-| Planned intelligence | Security agents, LLM integration |
-
-## 4. Repository Structure
-
-```text
-gp-main/
-|
-|-- README.md
-|-- .gitignore
-|-- step2.clab.yml
-|-- start-lab.sh
-|
-|-- scripts/
-|   |-- setup.sh
-|   |-- start.sh
-|   `-- init_graph.py
-|
-|-- config/
-|   `-- vlan-config.sh
-|
-|-- infrastructure/
-|   |-- compose.yaml
-|   `-- .env              # Generated locally, not committed
-|
-|-- backend/
-|   |-- pyproject.toml
-|   |-- src/notline/
-|   |   |-- discovery/
-|   |   `-- graph/
-|   `-- tests/
-|
-|-- r1/
-|-- web1/
-|-- app1/
-|
-|-- db1/data/             # Local runtime data
-|-- probe-logs/           # Local Zeek logs
-`-- probe2-logs/          # Local Zeek logs
-```
-
-Runtime data, local credentials, virtual environments, and generated Containerlab directories are excluded from Git.
-
-## 5. System Requirements
-
-The project is designed for an Ubuntu Linux environment, including Ubuntu running under WSL2 on Windows.
-
-### Required software
-
-- Git
-- Docker Engine
-- Docker Compose
-- Containerlab
-- Open vSwitch
-- Python 3 with virtual environment support
-- Internet access for initial image downloads and package installation
-- Sudo privileges for network configuration
-
-For Windows users, WSL2 with Ubuntu is recommended.
-
-### Installation resources
-
-Follow the official installation documentation for your operating system:
-
-- [Docker Engine for Ubuntu](https://docs.docker.com/engine/install/ubuntu/)
-- [Containerlab Installation](https://containerlab.dev/install/)
-- [Open vSwitch Documentation](https://docs.openvswitch.org/)
-- [WSL Installation](https://learn.microsoft.com/windows/wsl/install)
-
-On Ubuntu, the Open vSwitch package is commonly installed using:
-
-```bash
-sudo apt update
-sudo apt install -y openvswitch-switch
-```
-
-Ensure Docker and Open vSwitch are running before proceeding.
-
-## 6. Quick Start
-
-### Step 1 — Clone the repository
-
-```bash
-git clone <YOUR-PRIVATE-REPOSITORY-URL>
-cd <YOUR-REPOSITORY-DIRECTORY>
-```
-
-Replace the placeholders with the actual private GitHub repository URL and directory name.
-
-Your GitHub account must have access to the repository.
-
-### Step 2 — Run first-time setup
-
-```bash
-./scripts/setup.sh
-```
-
-This script:
-
-1. Checks required tools.
-2. Verifies Docker and Docker Compose.
-3. Creates the Python virtual environment.
-4. Installs the backend package and development dependencies.
-5. Creates required runtime directories.
-6. Generates a local Neo4j password if one does not already exist.
-7. Initializes the OVS bridges.
-
-The generated `infrastructure/.env` file must remain private.
-
-### Step 3 — Start NOTLINE
-
-```bash
-./scripts/start.sh
-```
-
-The startup script automatically:
-
-1. Starts Neo4j.
-2. Builds the web and application Docker images.
-3. Prepares the OVS bridges and runtime directories.
-4. Destroys and rebuilds the Containerlab network.
-5. Applies VLAN configuration.
-6. Configures OVS SPAN traffic mirrors for both Zeek probes.
-
-**Startup can take several minutes**, especially when Containerlab installs packages inside containers.
-
-Do not interrupt the process simply because the output pauses temporarily.
-
-The startup is complete when you see:
-
-```text
-=== Lab successfully deployed with active NOTLINE monitoring! ===
-=== NOTLINE Started ===
-Neo4j: http://localhost:7474
-```
-
-**Note:** The current startup workflow intentionally destroys and recreates the Containerlab deployment each time. Ephemeral changes inside the lab containers may be lost. Persisted bind-mounted data and Neo4j volumes are managed separately.
-
-## 7. Verify the Deployment
-
-### Check the containers
-
-```bash
-docker ps --format 'table {{.Names}}\t{{.Status}}'
-```
-
-You should see 13 Containerlab nodes and the Neo4j container.
-
-### Inspect the lab
-
-```bash
-sudo containerlab inspect -t step2.clab.yml
-```
-
-### Check OVS
-
-```bash
-sudo ovs-vsctl show
-```
-
-Confirm that `sw1` and `sw2` exist and that the expected ports are attached without missing-interface errors.
-
-### Check Zeek logs
-
-```bash
-ls -lh probe-logs/
-ls -lh probe2-logs/
-```
-
-Inspect recent connection records:
-
-```bash
-tail -n 5 probe-logs/conn.log
-```
-
-Zeek connection logs are configured to use JSON records.
-
-The presence of valid recent records confirms that a probe has captured network traffic. It does not by itself guarantee complete visibility across every VLAN or application.
-
-### Open Neo4j
-
-Open:
-
-http://localhost:7474
-
-Use the Neo4j credentials configured locally in `infrastructure/.env`.
-
-The graph database is currently prepared for the digital twin, but live network-to-graph synchronization remains under development.
-
-## 8. Python Backend
-
-The backend is organized as an installable Python package.
-
-Current components include:
-
-- Pydantic-based discovery models
-- Zeek log parsing
-- Neo4j connection management
-- Initial graph schema and constraints
-- Unit tests for Zeek parsing
-
-### Run backend tests
-
-From the repository root:
-
-```bash
-backend/.venv/bin/python -m pytest backend/tests -v
-```
-
-### Initialize graph schema
-
-```bash
-backend/.venv/bin/python scripts/init_graph.py
-```
-
-Run graph initialization only after Neo4j is available and the required environment configuration is present.
-
-## 9. Development Roadmap
-
-### Phase 1 — Enterprise Network Environment
-
-**Implemented**
-
-- Containerlab topology
-- Segmented enterprise network
-- FRRouting
-- Web, application, and database services
-- DHCP/DNS and simulated IoT devices
-- Two Zeek probes
-- OVS SPAN traffic mirroring
-
-### Phase 2 — Discovery and Digital Twin Construction
-
-**In progress**
-
-- Parse Zeek connection records
-- Develop incremental log ingestion
-- Identify observed hosts and communications
-- Model assets and relationships in Neo4j
-- Maintain and update the digital twin graph
-
-### Phase 3 — Security Analysis
-
-**Planned**
-
-- Enrich discovered assets with available service information
-- Investigate vulnerability and exposure analysis
-- Represent relevant attack paths and security relationships
-- Evaluate the quality of the digital twin against the emulated network
-
-### Phase 4 — Intelligent Agents and LLM Integration
-
-**Planned**
-
-- Develop security-analysis agent workflows
-- Integrate LLM-assisted reasoning
-- Generate explainable security recommendations
-- Evaluate accuracy, reliability, and limitations
-
-### Phase 5 — Controlled Self-Healing
-
-**Planned**
-
-- Define safe defensive actions
-- Introduce policy checks and approval controls
-- Execute selected responses in the isolated lab
-- Verify network recovery and service availability
-- Compare security outcomes before and after remediation
-
-The scope and implementation of later phases will be refined as the research progresses.
-
-## 10. Troubleshooting
-
-### Docker is unavailable
-
-Check:
-
-```bash
-docker info
-```
-
-Ensure the Docker daemon is running and your user has appropriate access.
-
-### Open vSwitch ports show "No such device"
-
-This can happen after restarting WSL or the laptop because container interfaces may no longer match the saved OVS configuration.
-
-Rebuild the lab using:
-
-```bash
-./scripts/start.sh
-```
-
-Do not launch multiple Containerlab deployments simultaneously.
-
-### Containerlab appears stuck
-
-Some topology startup commands install packages inside containers and may take several minutes.
-
-Wait for completion and check container status in another terminal:
-
-```bash
-docker ps -a
-```
-
-### Zeek reports that the `ip` command is missing
-
-The current Zeek container image may not include the `ip` utility.
-
-This can cause a topology initialization warning even when the interface is operational.
-
-Check the interface state:
-
-```bash
-docker exec clab-step2-switch-probe1 cat /sys/class/net/eth1/operstate
-```
-
-Then verify that recent connection logs are being generated.
-
-This initialization issue is a known improvement item.
-
-### Neo4j is still starting
-
-Check:
-
-```bash
-docker ps --filter name=notline-neo4j
-```
-
-Allow time for its health check to complete.
-
-## 11. Security and Research Boundaries
-
-This environment is designed for controlled cybersecurity research and experimentation.
-
-- Keep intentionally vulnerable services isolated from production networks.
-- Do not expose lab credentials or services publicly.
-- Do not commit `.env` files or runtime database data.
-- Use test data rather than real personal or organizational information.
-- Require appropriate validation and authorization before automated defensive actions.
-- Treat LLM recommendations as untrusted until independently checked.
-
-## 12. Team Collaboration
-
-The project is maintained in a private GitHub repository.
-
-Recommended development workflow:
-
-```bash
-git pull origin main
-git checkout -b feature/your-feature
-```
-
-Make your changes, run the relevant tests, and submit a pull request for review.
-
-Do not commit secrets, virtual environments, generated network state, or monitoring logs.
-
-## 13. Research Background
-
-This project is inspired by the NOTLINE research approach to non-intrusive cybersecurity digital twins.
-
-The current implementation is a research prototype extending the general concept toward intelligent security analysis and controlled self-healing.
-
-Full bibliographic references and research evaluation results will be added as the project develops.
-
----
-
-**Academic Graduation Project — Cybersecurity Digital Twin, Intelligent Agents, and LLM-Assisted Self-Healing**
-
-*Status: Active development.*# NOTLINE — Self-Healing Cybersecurity Digital Twin
-
-**A research-oriented cybersecurity digital twin platform for network monitoring, security analysis, and future autonomous threat response using intelligent agents and Large Language Models (LLMs).**
-
-> **Project status:** In development — the enterprise network lab, passive monitoring infrastructure, Neo4j environment, and initial Python backend components are implemented. Autonomous self-healing and LLM-based reasoning are planned features, not yet operational.
-
-## 1. Project Overview
-
-NOTLINE is a graduation project inspired by research on non-intrusive cybersecurity digital twins.
-
-Our goal is to develop a system that can observe an enterprise network, construct and maintain a digital representation of its infrastructure, analyze potential security risks, and eventually recommend or execute controlled defensive responses.
-
-The project combines:
-
-- **Network emulation** using Containerlab and Docker
-- **Network segmentation** using Open vSwitch and VLANs
-- **Routing** using FRRouting
-- **Passive network monitoring** using Zeek
-- **Graph-based digital twin storage** using Neo4j
-- **Security data processing** using Python
-- **Future intelligent analysis** using agents and LLMs
-- **Future self-healing mechanisms** for validated defensive actions
-
-The system is intended for an isolated research environment.
-
-## 2. Project Architecture
-
-### Enterprise network
-
-```text
-                     Enterprise Network
-                             |
-                       FRRouting (R1)
-                             |
-              +--------------+--------------+
-              |                             |
-         OVS Switch 1                  OVS Switch 2
-              |                             |
-         VLAN 10 Users               VLAN 20 Web
-          PC1, PC2                   VLAN 25 App
-                                    VLAN 30 Database
-                                    VLAN 35 Management
-                                    VLAN 40 IoT
-
-          Zeek Probe 2               Zeek Probe 1
-              |                             |
-          OVS Mirror                    OVS Mirror
-```
-
-The network includes 13 Containerlab nodes:
-
-| Node | Role |
-|---|---|
-| `r1` | Enterprise router using FRRouting |
-| `pc1`, `pc2` | Employee workstations |
-| `dhcp1` | DHCP and DNS services |
-| `web1` | Nginx web frontend |
-| `app1` | Node.js / Express application |
-| `db1` | PostgreSQL database |
-| `srv1` | Internal server |
-| `files1` | File-sharing server |
-| `iot1`, `iot2` | Simulated IoT devices |
-| `probe1`, `probe2` | Zeek passive monitoring probes |
-
-### Application architecture
-
-```text
-PC1 / PC2
-    |
-    v
-WEB1 (Nginx)
-    |
-    v
-APP1 (Node.js / Express)
-    |
-    v
-DB1 (PostgreSQL)
-```
-
-This application chain generates realistic network traffic for security monitoring and future attack-simulation experiments.
-
-### Cybersecurity digital twin architecture
-
-```text
-     Enterprise Network
-             |
-             v
-      OVS Port Mirroring
-             |
-             v
-       Zeek Monitoring
-             |
-             v
-       JSON Event Logs
-             |
-             v
-    Python Discovery Backend
-             |
-             v
-        Neo4j Graph
-             |
-             v
-   Future Security Analysis
-             |
-             v
-   Future Agents and LLMs
-             |
-             v
-  Future Controlled Response
-```
-
-**Important:** The architecture above includes both implemented components and planned integrations. Zeek logs are currently generated and the Neo4j environment is available, but automatic ingestion of Zeek events into the graph has not yet been completed.
-
-## 3. Technology Stack
-
-| Category | Technologies |
-|---|---|
-| Operating system | Ubuntu Linux / WSL2 |
-| Containers | Docker Engine |
-| Network emulation | Containerlab |
-| Virtual switching | Open vSwitch |
-| Routing | FRRouting |
-| Network monitoring | Zeek |
-| Graph database | Neo4j |
-| Relational database | PostgreSQL |
-| Backend | Python |
-| Web server | Nginx |
-| Application API | Node.js, Express |
-| Testing | pytest |
-| Version control | Git, GitHub |
-| Planned intelligence | Security agents, LLM integration |
-
-## 4. Repository Structure
-
-```text
-gp-main/
-|
-|-- README.md
-|-- .gitignore
-|-- step2.clab.yml
-|-- start-lab.sh
-|
-|-- scripts/
-|   |-- setup.sh
-|   |-- start.sh
-|   `-- init_graph.py
-|
-|-- config/
-|   `-- vlan-config.sh
-|
-|-- infrastructure/
-|   |-- compose.yaml
-|   `-- .env              # Generated locally, not committed
-|
-|-- backend/
-|   |-- pyproject.toml
-|   |-- src/notline/
-|   |   |-- discovery/
-|   |   `-- graph/
-|   `-- tests/
-|
-|-- r1/
-|-- web1/
-|-- app1/
-|
-|-- db1/data/             # Local runtime data
-|-- probe-logs/           # Local Zeek logs
-`-- probe2-logs/          # Local Zeek logs
-```
-
-Runtime data, local credentials, virtual environments, and generated Containerlab directories are excluded from Git.
-
-## 5. System Requirements
-
-The project is designed for an Ubuntu Linux environment, including Ubuntu running under WSL2 on Windows.
-
-### Required software
-
-- Git
-- Docker Engine
-- Docker Compose
-- Containerlab
-- Open vSwitch
-- Python 3 with virtual environment support
-- Internet access for initial image downloads and package installation
-- Sudo privileges for network configuration
-
-For Windows users, WSL2 with Ubuntu is recommended.
-
-### Installation resources
-
-Follow the official installation documentation for your operating system:
-
-- [Docker Engine for Ubuntu](https://docs.docker.com/engine/install/ubuntu/)
-- [Containerlab Installation](https://containerlab.dev/install/)
-- [Open vSwitch Documentation](https://docs.openvswitch.org/)
-- [WSL Installation](https://learn.microsoft.com/windows/wsl/install)
-
-On Ubuntu, the Open vSwitch package is commonly installed using:
-
-```bash
-sudo apt update
-sudo apt install -y openvswitch-switch
-```
-
-Ensure Docker and Open vSwitch are running before proceeding.
-
-## 6. Quick Start
-
-### Step 1 — Clone the repository
-
-```bash
-git clone <YOUR-PRIVATE-REPOSITORY-URL>
-cd <YOUR-REPOSITORY-DIRECTORY>
-```
-
-Replace the placeholders with the actual private GitHub repository URL and directory name.
-
-Your GitHub account must have access to the repository.
-
-### Step 2 — Run first-time setup
-
-```bash
-./scripts/setup.sh
-```
-
-This script:
-
-1. Checks required tools.
-2. Verifies Docker and Docker Compose.
-3. Creates the Python virtual environment.
-4. Installs the backend package and development dependencies.
-5. Creates required runtime directories.
-6. Generates a local Neo4j password if one does not already exist.
-7. Initializes the OVS bridges.
-
-The generated `infrastructure/.env` file must remain private.
-
-### Step 3 — Start NOTLINE
-
-```bash
-./scripts/start.sh
-```
-
-The startup script automatically:
-
-1. Starts Neo4j.
-2. Builds the web and application Docker images.
-3. Prepares the OVS bridges and runtime directories.
-4. Destroys and rebuilds the Containerlab network.
-5. Applies VLAN configuration.
-6. Configures OVS SPAN traffic mirrors for both Zeek probes.
-
-**Startup can take several minutes**, especially when Containerlab installs packages inside containers.
-
-Do not interrupt the process simply because the output pauses temporarily.
-
-The startup is complete when you see:
-
-```text
-=== Lab successfully deployed with active NOTLINE monitoring! ===
-=== NOTLINE Started ===
-Neo4j: http://localhost:7474
-```
-
-**Note:** The current startup workflow intentionally destroys and recreates the Containerlab deployment each time. Ephemeral changes inside the lab containers may be lost. Persisted bind-mounted data and Neo4j volumes are managed separately.
-
-## 7. Verify the Deployment
-
-### Check the containers
-
-```bash
-docker ps --format 'table {{.Names}}\t{{.Status}}'
-```
-
-You should see 13 Containerlab nodes and the Neo4j container.
-
-### Inspect the lab
-
-```bash
-sudo containerlab inspect -t step2.clab.yml
-```
-
-### Check OVS
-
-```bash
-sudo ovs-vsctl show
-```
-
-Confirm that `sw1` and `sw2` exist and that the expected ports are attached without missing-interface errors.
-
-### Check Zeek logs
-
-```bash
-ls -lh probe-logs/
-ls -lh probe2-logs/
-```
-
-Inspect recent connection records:
-
-```bash
-tail -n 5 probe-logs/conn.log
-```
-
-Zeek connection logs are configured to use JSON records.
-
-The presence of valid recent records confirms that a probe has captured network traffic. It does not by itself guarantee complete visibility across every VLAN or application.
-
-### Open Neo4j
-
-Open:
-
-http://localhost:7474
-
-Use the Neo4j credentials configured locally in `infrastructure/.env`.
-
-The graph database is currently prepared for the digital twin, but live network-to-graph synchronization remains under development.
-
-## 8. Python Backend
-
-The backend is organized as an installable Python package.
-
-Current components include:
-
-- Pydantic-based discovery models
-- Zeek log parsing
-- Neo4j connection management
-- Initial graph schema and constraints
-- Unit tests for Zeek parsing
-
-### Run backend tests
-
-From the repository root:
-
-```bash
-backend/.venv/bin/python -m pytest backend/tests -v
-```
-
-### Initialize graph schema
-
-```bash
-backend/.venv/bin/python scripts/init_graph.py
-```
-
-Run graph initialization only after Neo4j is available and the required environment configuration is present.
-
-## 9. Development Roadmap
-
-### Phase 1 — Enterprise Network Environment
-
-**Implemented**
-
-- Containerlab topology
-- Segmented enterprise network
-- FRRouting
-- Web, application, and database services
-- DHCP/DNS and simulated IoT devices
-- Two Zeek probes
-- OVS SPAN traffic mirroring
-
-### Phase 2 — Discovery and Digital Twin Construction
-
-**In progress**
-
-- Parse Zeek connection records
-- Develop incremental log ingestion
-- Identify observed hosts and communications
-- Model assets and relationships in Neo4j
-- Maintain and update the digital twin graph
-
-### Phase 3 — Security Analysis
-
-**Planned**
-
-- Enrich discovered assets with available service information
-- Investigate vulnerability and exposure analysis
-- Represent relevant attack paths and security relationships
-- Evaluate the quality of the digital twin against the emulated network
-
-### Phase 4 — Intelligent Agents and LLM Integration
-
-**Planned**
-
-- Develop security-analysis agent workflows
-- Integrate LLM-assisted reasoning
-- Generate explainable security recommendations
-- Evaluate accuracy, reliability, and limitations
-
-### Phase 5 — Controlled Self-Healing
-
-**Planned**
-
-- Define safe defensive actions
-- Introduce policy checks and approval controls
-- Execute selected responses in the isolated lab
-- Verify network recovery and service availability
-- Compare security outcomes before and after remediation
-
-The scope and implementation of later phases will be refined as the research progresses.
-
-## 10. Troubleshooting
-
-### Docker is unavailable
-
-Check:
-
-```bash
-docker info
-```
-
-Ensure the Docker daemon is running and your user has appropriate access.
-
-### Open vSwitch ports show "No such device"
-
-This can happen after restarting WSL or the laptop because container interfaces may no longer match the saved OVS configuration.
-
-Rebuild the lab using:
-
-```bash
-./scripts/start.sh
-```
-
-Do not launch multiple Containerlab deployments simultaneously.
-
-### Containerlab appears stuck
-
-Some topology startup commands install packages inside containers and may take several minutes.
-
-Wait for completion and check container status in another terminal:
-
-```bash
-docker ps -a
-```
-
-### Zeek reports that the `ip` command is missing
-
-The current Zeek container image may not include the `ip` utility.
-
-This can cause a topology initialization warning even when the interface is operational.
-
-Check the interface state:
-
-```bash
-docker exec clab-step2-switch-probe1 cat /sys/class/net/eth1/operstate
-```
-
-Then verify that recent connection logs are being generated.
-
-This initialization issue is a known improvement item.
-
-### Neo4j is still starting
-
-Check:
-
-```bash
-docker ps --filter name=notline-neo4j
-```
-
-Allow time for its health check to complete.
-
-## 11. Security and Research Boundaries
-
-This environment is designed for controlled cybersecurity research and experimentation.
-
-- Keep intentionally vulnerable services isolated from production networks.
-- Do not expose lab credentials or services publicly.
-- Do not commit `.env` files or runtime database data.
-- Use test data rather than real personal or organizational information.
-- Require appropriate validation and authorization before automated defensive actions.
-- Treat LLM recommendations as untrusted until independently checked.
-
-## 12. Team Collaboration
-
-The project is maintained in a private GitHub repository.
-
-Recommended development workflow:
-
-```bash
-git pull origin main
-git checkout -b feature/your-feature
-```
-
-Make your changes, run the relevant tests, and submit a pull request for review.
-
-Do not commit secrets, virtual environments, generated network state, or monitoring logs.
-
-## 13. Research Background
-
-This project is inspired by the NOTLINE research approach to non-intrusive cybersecurity digital twins.
-
-The current implementation is a research prototype extending the general concept toward intelligent security analysis and controlled self-healing.
-
-Full bibliographic references and research evaluation results will be added as the project develops.
-
----
-
-**Academic Graduation Project — Cybersecurity Digital Twin, Intelligent Agents, and LLM-Assisted Self-Healing**
-
-*Status: Active development.*# NOTLINE — Self-Healing Cybersecurity Digital Twin
-
-**A research-oriented cybersecurity digital twin platform for network monitoring, security analysis, and future autonomous threat response using intelligent agents and Large Language Models (LLMs).**
-
-> **Project status:** In development — the enterprise network lab, passive monitoring infrastructure, Neo4j environment, and initial Python backend components are implemented. Autonomous self-healing and LLM-based reasoning are planned features, not yet operational.
-
-## 1. Project Overview
-
-NOTLINE is a graduation project inspired by research on non-intrusive cybersecurity digital twins.
-
-Our goal is to develop a system that can observe an enterprise network, construct and maintain a digital representation of its infrastructure, analyze potential security risks, and eventually recommend or execute controlled defensive responses.
-
-The project combines:
-
-- **Network emulation** using Containerlab and Docker
-- **Network segmentation** using Open vSwitch and VLANs
-- **Routing** using FRRouting
-- **Passive network monitoring** using Zeek
-- **Graph-based digital twin storage** using Neo4j
-- **Security data processing** using Python
-- **Future intelligent analysis** using agents and LLMs
-- **Future self-healing mechanisms** for validated defensive actions
-
-The system is intended for an isolated research environment.
-
-## 2. Project Architecture
-
-### Enterprise network
-
-```text
-                     Enterprise Network
-                             |
-                       FRRouting (R1)
-                             |
-              +--------------+--------------+
-              |                             |
-         OVS Switch 1                  OVS Switch 2
-              |                             |
-         VLAN 10 Users               VLAN 20 Web
-          PC1, PC2                   VLAN 25 App
-                                    VLAN 30 Database
-                                    VLAN 35 Management
-                                    VLAN 40 IoT
-
-          Zeek Probe 2               Zeek Probe 1
-              |                             |
-          OVS Mirror                    OVS Mirror
-```
-
-The network includes 13 Containerlab nodes:
-
-| Node | Role |
-|---|---|
-| `r1` | Enterprise router using FRRouting |
-| `pc1`, `pc2` | Employee workstations |
-| `dhcp1` | DHCP and DNS services |
-| `web1` | Nginx web frontend |
-| `app1` | Node.js / Express application |
-| `db1` | PostgreSQL database |
-| `srv1` | Internal server |
-| `files1` | File-sharing server |
-| `iot1`, `iot2` | Simulated IoT devices |
-| `probe1`, `probe2` | Zeek passive monitoring probes |
-
-### Application architecture
-
-```text
-PC1 / PC2
-    |
-    v
-WEB1 (Nginx)
-    |
-    v
-APP1 (Node.js / Express)
-    |
-    v
-DB1 (PostgreSQL)
-```
-
-This application chain generates realistic network traffic for security monitoring and future attack-simulation experiments.
-
-### Cybersecurity digital twin architecture
-
-```text
-     Enterprise Network
-             |
-             v
-      OVS Port Mirroring
-             |
-             v
-       Zeek Monitoring
-             |
-             v
-       JSON Event Logs
-             |
-             v
-    Python Discovery Backend
-             |
-             v
-        Neo4j Graph
-             |
-             v
-   Future Security Analysis
-             |
-             v
-   Future Agents and LLMs
-             |
-             v
-  Future Controlled Response
-```
-
-**Important:** The architecture above includes both implemented components and planned integrations. Zeek logs are currently generated and the Neo4j environment is available, but automatic ingestion of Zeek events into the graph has not yet been completed.
-
-## 3. Technology Stack
-
-| Category | Technologies |
-|---|---|
-| Operating system | Ubuntu Linux / WSL2 |
-| Containers | Docker Engine |
-| Network emulation | Containerlab |
-| Virtual switching | Open vSwitch |
-| Routing | FRRouting |
-| Network monitoring | Zeek |
-| Graph database | Neo4j |
-| Relational database | PostgreSQL |
-| Backend | Python |
-| Web server | Nginx |
-| Application API | Node.js, Express |
-| Testing | pytest |
-| Version control | Git, GitHub |
-| Planned intelligence | Security agents, LLM integration |
-
-## 4. Repository Structure
-
-```text
-gp-main/
-|
-|-- README.md
-|-- .gitignore
-|-- step2.clab.yml
-|-- start-lab.sh
-|
-|-- scripts/
-|   |-- setup.sh
-|   |-- start.sh
-|   `-- init_graph.py
-|
-|-- config/
-|   `-- vlan-config.sh
-|
-|-- infrastructure/
-|   |-- compose.yaml
-|   `-- .env              # Generated locally, not committed
-|
-|-- backend/
-|   |-- pyproject.toml
-|   |-- src/notline/
-|   |   |-- discovery/
-|   |   `-- graph/
-|   `-- tests/
-|
-|-- r1/
-|-- web1/
-|-- app1/
-|
-|-- db1/data/             # Local runtime data
-|-- probe-logs/           # Local Zeek logs
-`-- probe2-logs/          # Local Zeek logs
-```
-
-Runtime data, local credentials, virtual environments, and generated Containerlab directories are excluded from Git.
-
-## 5. System Requirements
-
-The project is designed for an Ubuntu Linux environment, including Ubuntu running under WSL2 on Windows.
-
-### Required software
-
-- Git
-- Docker Engine
-- Docker Compose
-- Containerlab
-- Open vSwitch
-- Python 3 with virtual environment support
-- Internet access for initial image downloads and package installation
-- Sudo privileges for network configuration
-
-For Windows users, WSL2 with Ubuntu is recommended.
-
-### Installation resources
-
-Follow the official installation documentation for your operating system:
-
-- [Docker Engine for Ubuntu](https://docs.docker.com/engine/install/ubuntu/)
-- [Containerlab Installation](https://containerlab.dev/install/)
-- [Open vSwitch Documentation](https://docs.openvswitch.org/)
-- [WSL Installation](https://learn.microsoft.com/windows/wsl/install)
-
-On Ubuntu, the Open vSwitch package is commonly installed using:
-
-```bash
-sudo apt update
-sudo apt install -y openvswitch-switch
-```
-
-Ensure Docker and Open vSwitch are running before proceeding.
-
-## 6. Quick Start
-
-### Step 1 — Clone the repository
-
-```bash
-git clone <YOUR-PRIVATE-REPOSITORY-URL>
-cd <YOUR-REPOSITORY-DIRECTORY>
-```
-
-Replace the placeholders with the actual private GitHub repository URL and directory name.
-
-Your GitHub account must have access to the repository.
-
-### Step 2 — Run first-time setup
-
-```bash
-./scripts/setup.sh
-```
-
-This script:
-
-1. Checks required tools.
-2. Verifies Docker and Docker Compose.
-3. Creates the Python virtual environment.
-4. Installs the backend package and development dependencies.
-5. Creates required runtime directories.
-6. Generates a local Neo4j password if one does not already exist.
-7. Initializes the OVS bridges.
-
-The generated `infrastructure/.env` file must remain private.
-
-### Step 3 — Start NOTLINE
-
-```bash
-./scripts/start.sh
-```
-
-The startup script automatically:
-
-1. Starts Neo4j.
-2. Builds the web and application Docker images.
-3. Prepares the OVS bridges and runtime directories.
-4. Destroys and rebuilds the Containerlab network.
-5. Applies VLAN configuration.
-6. Configures OVS SPAN traffic mirrors for both Zeek probes.
-
-**Startup can take several minutes**, especially when Containerlab installs packages inside containers.
-
-Do not interrupt the process simply because the output pauses temporarily.
-
-The startup is complete when you see:
-
-```text
-=== Lab successfully deployed with active NOTLINE monitoring! ===
-=== NOTLINE Started ===
-Neo4j: http://localhost:7474
-```
-
-**Note:** The current startup workflow intentionally destroys and recreates the Containerlab deployment each time. Ephemeral changes inside the lab containers may be lost. Persisted bind-mounted data and Neo4j volumes are managed separately.
-
-## 7. Verify the Deployment
-
-### Check the containers
-
-```bash
-docker ps --format 'table {{.Names}}\t{{.Status}}'
-```
-
-You should see 13 Containerlab nodes and the Neo4j container.
-
-### Inspect the lab
-
-```bash
-sudo containerlab inspect -t step2.clab.yml
-```
-
-### Check OVS
-
-```bash
-sudo ovs-vsctl show
-```
-
-Confirm that `sw1` and `sw2` exist and that the expected ports are attached without missing-interface errors.
-
-### Check Zeek logs
-
-```bash
-ls -lh probe-logs/
-ls -lh probe2-logs/
-```
-
-Inspect recent connection records:
-
-```bash
-tail -n 5 probe-logs/conn.log
-```
-
-Zeek connection logs are configured to use JSON records.
-
-The presence of valid recent records confirms that a probe has captured network traffic. It does not by itself guarantee complete visibility across every VLAN or application.
-
-### Open Neo4j
-
-Open:
-
-http://localhost:7474
-
-Use the Neo4j credentials configured locally in `infrastructure/.env`.
-
-The graph database is currently prepared for the digital twin, but live network-to-graph synchronization remains under development.
-
-## 8. Python Backend
-
-The backend is organized as an installable Python package.
-
-Current components include:
-
-- Pydantic-based discovery models
-- Zeek log parsing
-- Neo4j connection management
-- Initial graph schema and constraints
-- Unit tests for Zeek parsing
-
-### Run backend tests
-
-From the repository root:
-
-```bash
-backend/.venv/bin/python -m pytest backend/tests -v
-```
-
-### Initialize graph schema
-
-```bash
-backend/.venv/bin/python scripts/init_graph.py
-```
-
-Run graph initialization only after Neo4j is available and the required environment configuration is present.
-
-## 9. Development Roadmap
-
-### Phase 1 — Enterprise Network Environment
-
-**Implemented**
-
-- Containerlab topology
-- Segmented enterprise network
-- FRRouting
-- Web, application, and database services
-- DHCP/DNS and simulated IoT devices
-- Two Zeek probes
-- OVS SPAN traffic mirroring
-
-### Phase 2 — Discovery and Digital Twin Construction
-
-**In progress**
-
-- Parse Zeek connection records
-- Develop incremental log ingestion
-- Identify observed hosts and communications
-- Model assets and relationships in Neo4j
-- Maintain and update the digital twin graph
-
-### Phase 3 — Security Analysis
-
-**Planned**
-
-- Enrich discovered assets with available service information
-- Investigate vulnerability and exposure analysis
-- Represent relevant attack paths and security relationships
-- Evaluate the quality of the digital twin against the emulated network
-
-### Phase 4 — Intelligent Agents and LLM Integration
-
-**Planned**
-
-- Develop security-analysis agent workflows
-- Integrate LLM-assisted reasoning
-- Generate explainable security recommendations
-- Evaluate accuracy, reliability, and limitations
-
-### Phase 5 — Controlled Self-Healing
-
-**Planned**
-
-- Define safe defensive actions
-- Introduce policy checks and approval controls
-- Execute selected responses in the isolated lab
-- Verify network recovery and service availability
-- Compare security outcomes before and after remediation
-
-The scope and implementation of later phases will be refined as the research progresses.
-
-## 10. Troubleshooting
-
-### Docker is unavailable
-
-Check:
-
-```bash
-docker info
-```
-
-Ensure the Docker daemon is running and your user has appropriate access.
-
-### Open vSwitch ports show "No such device"
-
-This can happen after restarting WSL or the laptop because container interfaces may no longer match the saved OVS configuration.
-
-Rebuild the lab using:
-
-```bash
-./scripts/start.sh
-```
-
-Do not launch multiple Containerlab deployments simultaneously.
-
-### Containerlab appears stuck
-
-Some topology startup commands install packages inside containers and may take several minutes.
-
-Wait for completion and check container status in another terminal:
-
-```bash
-docker ps -a
-```
-
-### Zeek reports that the `ip` command is missing
-
-The current Zeek container image may not include the `ip` utility.
-
-This can cause a topology initialization warning even when the interface is operational.
-
-Check the interface state:
-
-```bash
-docker exec clab-step2-switch-probe1 cat /sys/class/net/eth1/operstate
-```
-
-Then verify that recent connection logs are being generated.
-
-This initialization issue is a known improvement item.
-
-### Neo4j is still starting
-
-Check:
-
-```bash
-docker ps --filter name=notline-neo4j
-```
-
-Allow time for its health check to complete.
-
-## 11. Security and Research Boundaries
-
-This environment is designed for controlled cybersecurity research and experimentation.
-
-- Keep intentionally vulnerable services isolated from production networks.
-- Do not expose lab credentials or services publicly.
-- Do not commit `.env` files or runtime database data.
-- Use test data rather than real personal or organizational information.
-- Require appropriate validation and authorization before automated defensive actions.
-- Treat LLM recommendations as untrusted until independently checked.
-
-## 12. Team Collaboration
-
-The project is maintained in a private GitHub repository.
-
-Recommended development workflow:
-
-```bash
-git pull origin main
-git checkout -b feature/your-feature
-```
-
-Make your changes, run the relevant tests, and submit a pull request for review.
-
-Do not commit secrets, virtual environments, generated network state, or monitoring logs.
-
-## 13. Research Background
-
-This project is inspired by the NOTLINE research approach to non-intrusive cybersecurity digital twins.
-
-The current implementation is a research prototype extending the general concept toward intelligent security analysis and controlled self-healing.
-
-Full bibliographic references and research evaluation results will be added as the project develops.
-
----
-
-**Academic Graduation Project — Cybersecurity Digital Twin, Intelligent Agents, and LLM-Assisted Self-Healing**
-
-*Status: Active development
+cd backend
+.venv/bin/python -m pytest -q
+.venv/bin/ruff check src tests scripts
+.venv/bin/ruff format --check src tests scripts
+```
+
+The test suite uses mocked request functions and recording Neo4j drivers for
+fast, deterministic contract tests. Live Docker/OVS/Zeek/Neo4j behavior still
+requires the deployment and pipeline checks described in
+[`docs/development/testing.md`](docs/development/testing.md).
+
+## Research and safety boundaries
+
+This is an isolated research lab. Keep its services and credentials away from
+production networks. Do not commit:
+
+- `infrastructure/.env`;
+- Neo4j data directories;
+- Zeek logs and packet captures;
+- Containerlab generated state or TLS material;
+- virtual environments and API caches.
+
+The lab credentials are disposable test credentials, not a security design.
+Treat all automated or LLM-generated recommendations as untrusted until
+validated by explicit policy and human-approved controls.
