@@ -348,6 +348,21 @@ fast, deterministic contract tests. Live Docker/OVS/Zeek/Neo4j behavior still
 requires the deployment and pipeline checks described in
 [`docs/development/testing.md`](docs/development/testing.md).
 
+## Router forwarding policy
+
+R1 applies a default-deny policy to routed traffic. The allowlist covers user
+access to WEB1 over TCP/80 and TCP/443, user SSH access to SRV1, user SMB
+access to FILES1, and the WEB1 -> APP1 -> DB1 application path. Established
+and related return traffic is allowed; rejected forwarded packets are
+rate-limited and logged with the `R1-FW-DROP` prefix.
+
+Inspect the policy and its counters with:
+
+```bash
+docker exec clab-step2-switch-r1 iptables -nvL FORWARD
+docker exec clab-step2-switch-r1 iptables -nvL R1-FORWARD
+```
+
 ## Research and safety boundaries
 
 This is an isolated research lab. Keep its services and credentials away from
